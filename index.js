@@ -17,10 +17,7 @@ app.use(cors({
         const allowedOrigins = [
             'https://shopsenseai.app',
             'https://shopsenseai.netlify.app',
-            'https://clinquant-starship-25fe89.netlify.app',
-            'http://localhost:5173',
-            'http://localhost:3000',
-            'http://localhost:4173'
+            'https://clinquant-starship-25fe89.netlify.app'
         ];
         
         // Check exact matches first
@@ -28,8 +25,9 @@ app.use(cors({
             return callback(null, true);
         }
         
-        // Check webcontainer patterns
-        const webcontainerPatterns = [
+        // Check dynamic patterns including localhost and webcontainer
+        const dynamicPatterns = [
+            /^http:\/\/localhost:\d+$/,
             /^https:\/\/.*\.webcontainer\.io$/,
             /^https:\/\/.*\.webcontainer-api\.io$/,
             /^https:\/\/.*\.bolt\.new$/,
@@ -42,7 +40,7 @@ app.use(cors({
             /^https:\/\/.*\.codesandbox\.io$/
         ];
         
-        for (const pattern of webcontainerPatterns) {
+        for (const pattern of dynamicPatterns) {
             if (pattern.test(origin)) {
                 return callback(null, true);
             }
