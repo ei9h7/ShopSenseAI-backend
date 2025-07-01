@@ -3,7 +3,7 @@ services:
     name: torquegpt-webhook
     env: node
     plan: free
-    buildCommand: npm install && npm run build
+    buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health
     envVars:

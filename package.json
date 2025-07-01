@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js",
-    "build": "echo 'No build step needed - using JavaScript directly'",
+    "build": "npm install",
     "postinstall": "echo 'Ready to start'"
   },
   "dependencies": {
@@ -18,7 +18,7 @@
     "cheerio": "^1.0.0-rc.12"
   },
   "engines": {
-    "node": ">=18.0.0",
+    "node": "18.x",
     "npm": ">=8.0.0"
   }
 }
