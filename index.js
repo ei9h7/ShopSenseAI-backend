@@ -4,7 +4,6 @@ import express from 'express';
 import cors from 'cors';
 import webhookController from './controllers/webhookController.js';
 import { messageService } from './services/messageService.js';
-import { OpenAIService } from './services/openai.js';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -187,7 +186,6 @@ app.post('/api/generate-tech-sheet', async (req, res) => {
         
         console.log('🔧 Generating tech sheet via server API...');
         
-        const openAI = new OpenAIService(process.env.OPENAI_API_KEY);
         const prompt = vehicleInfo ? `${jobDescription} for ${vehicleInfo}` : jobDescription;
         
         // Use a specialized prompt for tech sheet generation
