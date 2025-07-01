@@ -31,7 +31,15 @@ app.use(cors({
         // Check webcontainer patterns
         const webcontainerPatterns = [
             /^https:\/\/.*\.webcontainer\.io$/,
-            /^https:\/\/.*\.webcontainer-api\.io$/
+            /^https:\/\/.*\.webcontainer-api\.io$/,
+            /^https:\/\/.*\.bolt\.new$/,
+            /^https:\/\/bolt\.new$/,
+            /^https:\/\/.*\.stackblitz\.com$/,
+            /^https:\/\/stackblitz\.com$/,
+            /^https:\/\/.*\.webcontainer\.dev$/,
+            /^https:\/\/.*-.*\.webcontainer\.io$/,
+            /^https:\/\/.*\.csb\.app$/,
+            /^https:\/\/.*\.codesandbox\.io$/
         ];
         
         for (const pattern of webcontainerPatterns) {
