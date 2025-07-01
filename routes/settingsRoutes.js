@@ -67,4 +67,13 @@ router.post('/', (req, res) => {
     }
 });
 
+// Health endpoint for internal use
+router.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        service: 'settings',
+        timestamp: new Date().toISOString()
+    });
+});
+
 export default router;
