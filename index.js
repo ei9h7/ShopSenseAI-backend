@@ -20,7 +20,8 @@ app.use(cors({
             'https://clinquant-starship-25fe89.netlify.app',
             'http://localhost:5173',
             'http://localhost:3000',
-            'http://localhost:4173'
+            'http://localhost:4173',
+            'http://localhost:10000'
         ];
         
         // Add frontend URL from environment variables
