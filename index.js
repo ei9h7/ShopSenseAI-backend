@@ -25,6 +25,12 @@ app.use(cors({
             return callback(null, true);
         }
         
+        // Allow requests from the same port the server is running on
+        const serverPort = process.env.PORT || 10000;
+        if (origin === `http://localhost:${serverPort}` || origin === `https://localhost:${serverPort}`) {
+            return callback(null, true);
+        }
+        
         // Check dynamic patterns including localhost and webcontainer
         const dynamicPatterns = [
             /^http:\/\/localhost:\d+$/,
