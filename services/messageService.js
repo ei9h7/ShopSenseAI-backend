@@ -248,6 +248,115 @@ class MessageService {
     }
 
     /**
+     * Get all messages for API endpoint
+     */
+    getMessages() {
+        const messages = Array.from(this.messages.values())
+            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+            .slice(0, 100); // Limit to last 100 messages
+
+        logger.debug('Retrieved messages via getMessages()', { count: messages.length });
+        return messages;
+    }
+
+    /**
+     * Get customers extracted from messages
+     */
+    getCustomers() {
+        const customers = new Map();
+        
+        Array.from(this.messages.values()).forEach(message => {
+            if (message.phone_number && !customers.has(message.phone_number)) {
+                customers.set(message.phone_number, {
+                    id: message.phone_number,
+                    phone_number: message.phone_number,
+                    last_contact: message.timestamp,
+                    message_count: 1,
+                    last_message: message.body.substring(0, 50) + '...'
+                });
+            } else if (customers.has(message.phone_number)) {
+                const customer = customers.get(message.phone_number);
+                customer.message_count++;
+                if (new Date(message.timestamp) > new Date(customer.last_contact)) {
+                    customer.last_contact = message.timestamp;
+                    customer.last_message = message.body.substring(0, 50) + '...';
+                }
+            }
+        });
+
+        return Array.from(customers.values())
+            .sort((a, b) => new Date(b.last_contact).getTime() - new Date(a.last_contact).getTime());
+    }
+
+    /**
+     * Get quotes from messages (placeholder)
+     */
+    getQuotes() {
+        // Extract quote-related messages
+        const quoteMessages = Array.from(this.messages.values())
+            .filter(msg => 
+                msg.intent && (
+                    msg.intent.toLowerCase().includes('quote') ||
+                    msg.intent.toLowerCase().includes('price') ||
+                    msg.intent.toLowerCase().includes('estimate')
+                )
+            );
+
+        return quoteMessages.map(msg => ({
+            id: msg.id,
+            customer_phone: msg.phone_number,
+            request: msg.body,
+            response: msg.ai_response,
+            created_at: msg.timestamp,
+            status: 'sent'
+        }));
+    }
+
+    /**
+     * Get appointments from messages (placeholder)
+     */
+    getAppointments() {
+        // Extract booking-related messages
+        const bookingMessages = Array.from(this.messages.values())
+            .filter(msg => 
+                msg.intent && (
+                    msg.intent.toLowerCase().includes('booking') ||
+                    msg.intent.toLowerCase().includes('appointment') ||
+                    msg.intent.toLowerCase().includes('schedule')
+                )
+            );
+
+        return bookingMessages.map(msg => ({
+            id: msg.id,
+            customer_phone: msg.phone_number,
+            request: msg.body,
+            created_at: msg.timestamp,
+            status: 'pending'
+        }));
+    }
+
+    /**
+     * Get tech sheets (placeholder)
+     */
+    getTechSheets() {
+        // Placeholder - return empty array for now
+        return [];
+    }
+
+    /**
+     * Mark message as read (compatibility method)
+     */
+    markMessageAsRead(messageId) {
+        const message = this.messages.get(messageId);
+        if (message) {
+            message.read = true;
+            logger.debug('Message marked as read', { messageId });
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Get conversation history for a specific phone number
      */
     getConversationHistory(phoneNumber) {
