@@ -23,6 +23,13 @@ app.use(cors({
             'http://localhost:4173'
         ];
         
+        // Add frontend URL from environment variables
+        if (process.env.FRONTEND_URL) {
+            // Handle comma-separated URLs
+            const frontendUrls = process.env.FRONTEND_URL.split(',').map(url => url.trim());
+            allowedOrigins.push(...frontendUrls);
+        }
+        
         // Check exact matches first
         if (allowedOrigins.includes(origin)) {
             return callback(null, true);
