@@ -251,12 +251,11 @@ class MessageService {
      * Get all messages for API endpoint
      */
     getMessages() {
-        // Testing sync on dev branch - added this comment
         const messages = Array.from(this.messages.values())
             .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
             .slice(0, 100); // Limit to last 100 messages
 
-        logger.info('Retrieved messages via getMessages() on dev branch', { count: messages.length });
+        logger.info('Retrieved messages via getMessages()', { count: messages.length });
         return messages;
     }
 
