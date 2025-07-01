@@ -1,5 +1,8 @@
 import express from 'express';
+import bookingController from '../controllers/bookingController.js';
+import calendarService from '../services/calendarService.js';
 import logger from '../utils/logger.js';
+import { validateRequiredFields } from '../middleware/validation.js';
 
 const router = express.Router();
 
@@ -15,17 +18,13 @@ const router = express.Router();
 const appointments = new Map();
 
 // Get all appointments
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
     try {
-        logger.info('Fetching appointments');
-        
-        const allAppointments = Array.from(appointments.values())
-            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        
+        const appointments = await calendarService.getAllAppointments();
         res.json({
             success: true,
-            appointments: allAppointments,
-            count: allAppointments.length
+            appointments,
+            count: appointments.length
         });
     } catch (error) {
         logger.error('Error fetching appointments:', error);
@@ -36,64 +35,39 @@ router.get('/', (req, res) => {
     }
 });
 
-// Create new appointment
-router.post('/', (req, res) => {
-    try {
-        const {
-            customer_name,
-            customer_phone,
-            vehicle_info,
-            service_type,
-            date,
-            time,
-            duration,
-            notes
-        } = req.body;
+// Create new appointment with availability checking
+router.post('/', validateRequiredFields(['customer_name', 'customer_phone', 'preferred_date', 'preferred_time']), bookingController.createBooking);
 
-        // Validation
-        if (!customer_name || !customer_phone || !date || !time) {
+// Check availability
+router.get('/availability', async (req, res) => {
+    try {
+        const { date } = req.query;
+        if (!date) {
             return res.status(400).json({
                 success: false,
-                error: 'Missing required fields: customer_name, customer_phone, date, time'
+                error: 'Date parameter is required'
             });
         }
 
-        const appointment = {
-            id: Date.now().toString(),
-            customer_name,
-            customer_phone,
-            vehicle_info: vehicle_info || '',
-            service_type: service_type || 'General Service',
-            date,
-            time,
-            duration: duration || 1,
-            status: 'scheduled',
-            notes: notes || '',
-            created_at: new Date().toISOString()
-        };
-
-        appointments.set(appointment.id, appointment);
-        
-        logger.success('Appointment created', { 
-            appointmentId: appointment.id, 
-            customer: customer_name,
-            date,
-            time
-        });
-        
-        res.status(201).json({
+        const availability = await calendarService.getDayAvailability(date);
+        res.json({
             success: true,
-            appointment,
-            message: 'Appointment created successfully'
+            availability
         });
     } catch (error) {
-        logger.error('Error creating appointment:', error);
+        logger.error('Error checking availability:', error);
         res.status(500).json({
             success: false,
-            error: 'Failed to create appointment'
+            error: 'Failed to check availability'
         });
     }
 });
+
+// Cancel appointment
+router.delete('/:id', bookingController.cancelAppointment);
+
+// Reschedule appointment
+router.put('/:id/reschedule', validateRequiredFields(['new_date', 'new_time']), bookingController.rescheduleAppointment);
 
 // Update appointment status
 router.put('/:id/status', (req, res) => {
