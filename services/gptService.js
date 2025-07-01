@@ -32,6 +32,12 @@ class GPTService {
                 throw new Error('OpenAI API key not configured');
             }
 
+            // Clean and validate message body
+            messageBody = messageBody.trim();
+            if (!messageBody) {
+                throw new Error('Empty message body');
+            }
+
             logger.info('Processing message with GPT', { 
                 messageLength: messageBody.length, 
                 historyCount: conversationHistory.length 

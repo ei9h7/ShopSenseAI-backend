@@ -37,6 +37,14 @@ class MessageService {
         try {
             logger.info('Processing incoming message', { phoneNumber, messageLength: messageBody.length });
 
+            // Clean the message body
+            messageBody = messageBody.trim();
+            
+            if (!messageBody) {
+                logger.warn('Empty message body received', { phoneNumber });
+                return { success: false, error: 'Empty message body' };
+            }
+
             // Create and store the incoming message
             const message = this.createMessage(phoneNumber, messageBody, 'inbound');
             this.storeMessage(message);

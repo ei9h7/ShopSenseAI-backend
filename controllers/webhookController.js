@@ -68,7 +68,14 @@ class WebhookController {
 
             // Extract message data
             const phoneNumber = payload.data.object.from;
-            const messageBody = payload.data.object.body || payload.data.object.text || '';
+            // Clean up escaped quotes in message body
+            let messageBody = payload.data.object.body || payload.data.object.text || '';
+            
+            // Remove escaped quotes that OpenPhone sometimes adds
+            if (messageBody.startsWith('"') && messageBody.endsWith('"')) {
+                messageBody = messageBody.slice(1, -1);
+            }
+            
             const phoneNumberId = payload.data.object.phoneNumberId;
             
             // Validate required fields
@@ -121,6 +128,13 @@ class WebhookController {
 
         } catch (error) {
             logger.error('Webhook processing error:', error);
+            
+            // Log the full error details for debugging
+            logger.error('Full error details:', {
+                message: error.message,
+                stack: error.stack,
+                payload: payload
+            });
             
             // Return 200 to prevent OpenPhone from retrying
             res.status(200).json({ 
