@@ -1,0 +1,22 @@
+{
+  "name": "shopsenseai-webhook-server",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "ShopSenseAI webhook server - Instant quotes. Automated booking. More wrench time.",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "build": "echo 'No build step needed - using JavaScript directly'",
+    "postinstall": "echo 'Ready to start'"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "axios": "^1.6.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}
