@@ -52,7 +52,7 @@ class WebhookController {
             }
 
             // Validate OpenPhone webhook structure
-            if (!this.isValidOpenPhoneWebhook(payload)) {
+            if (!webhookController.isValidOpenPhoneWebhook(payload)) {
                 logger.warn('Invalid webhook payload structure', payload);
                 return res.status(200).json({ 
                     received: true, 
@@ -188,4 +188,5 @@ class WebhookController {
     }
 }
 
-export default new WebhookController();
+const webhookController = new WebhookController();
+export default webhookController;
