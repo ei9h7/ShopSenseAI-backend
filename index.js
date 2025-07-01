@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 import express from 'express';
 import cors from 'cors';
-import { handleOpenPhoneWebhook } from './webhooks/openphone.js';
+import webhookController from './controllers/webhookController.js';
 import { messageProcessor } from './services/messageProcessor.js';
 import { OpenAIService } from './services/openai.js';
 
@@ -315,12 +315,12 @@ app.post('/api/messages/reply', async (req, res) => {
 });
 
 // OpenPhone webhook endpoint - FIXED PATH
-app.post('/api/webhooks/openphone', handleOpenPhoneWebhook);
+app.post('/api/webhooks/openphone', webhookController.handleOpenPhoneWebhook);
 
 // Test webhook endpoint for debugging
 app.post('/webhooks/openphone', (req, res) => {
     console.log('🔔 Webhook received at /webhooks/openphone (redirecting to /api/webhooks/openphone)');
-    handleOpenPhoneWebhook(req, res);
+    webhookController.handleOpenPhoneWebhook(req, res);
 });
 
 // Test endpoint to verify webhook is working
