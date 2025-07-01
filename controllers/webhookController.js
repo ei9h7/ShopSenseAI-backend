@@ -133,7 +133,7 @@ class WebhookController {
             logger.error('Full error details:', {
                 message: error.message,
                 stack: error.stack,
-                payload: payload
+                payload: req.body
             });
             
             // Return 200 to prevent OpenPhone from retrying
