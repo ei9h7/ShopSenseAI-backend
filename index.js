@@ -106,7 +106,6 @@ app.get('/api/settings', (req, res) => {
 // Customer Database API endpoint
 app.get('/api/customers', async (req, res) => {
     try {
-        await messageService.initialize();
         const customers = messageService.getCustomers();
         console.log(`📊 Returning ${customers.length} customers`);
         res.json({ customers });
@@ -123,7 +122,6 @@ app.get('/api/customers', async (req, res) => {
 // Quotes API endpoint
 app.get('/api/quotes', async (req, res) => {
     try {
-        await messageService.initialize();
         const quotes = messageService.getQuotes();
         console.log(`📊 Returning ${quotes.length} quotes`);
         res.json({ quotes });
@@ -140,7 +138,6 @@ app.get('/api/quotes', async (req, res) => {
 // Appointments API endpoint
 app.get('/api/appointments', async (req, res) => {
     try {
-        await messageService.initialize();
         const appointments = messageService.getAppointments();
         console.log(`📊 Returning ${appointments.length} appointments`);
         res.json({ appointments });
@@ -157,7 +154,6 @@ app.get('/api/appointments', async (req, res) => {
 // Tech Sheets API endpoint
 app.get('/api/tech-sheets', async (req, res) => {
     try {
-        await messageService.initialize();
         const techSheets = messageService.getTechSheets();
         console.log(`📊 Returning ${techSheets.length} tech sheets`);
         res.json({ techSheets });
@@ -243,9 +239,6 @@ Make the instructions detailed and professional for a working mechanic.`
 // Messages API endpoint - Fixed to handle initialization properly
 app.get('/api/messages', async (req, res) => {
     try {
-        // Ensure messageProcessor is initialized
-        await messageService.initialize();
-        
         // Check if getMessages method exists
         if (typeof messageService.getMessages !== 'function') {
             console.error('❌ getMessages method not found on messageService');
@@ -272,7 +265,6 @@ app.get('/api/messages', async (req, res) => {
 app.post('/api/messages/:id/read', async (req, res) => {
     try {
         const { id } = req.params;
-        await messageService.initialize();
         
         if (typeof messageService.markMessageAsRead !== 'function') {
             console.error('❌ markMessageAsRead method not found');
@@ -295,8 +287,6 @@ app.post('/api/messages/reply', async (req, res) => {
         if (!phoneNumber || !message) {
             return res.status(400).json({ error: 'Phone number and message are required' });
         }
-        
-        await messageService.initialize();
         
         if (typeof messageService.sendManualReply !== 'function') {
             console.error('❌ sendManualReply method not found');
@@ -380,14 +370,6 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     console.log(`✅ ShopSenseAI webhook server deployed successfully!`);
     console.log(`🎯 Tagline: Instant quotes. Automated booking. More wrench time.`);
     console.log(`🌐 Allowed origins: shopsenseai.app, shopsenseai.netlify.app`);
-    
-    // Initialize messageProcessor on startup
-    try {
-        await messageService.initialize();
-        console.log('🤖 MessageService initialized on startup');
-    } catch (error) {
-        console.error('❌ Failed to initialize MessageService on startup:', error);
-    }
 });
 
 // Handle server errors
