@@ -131,6 +131,127 @@ Make the instructions detailed and professional for a working mechanic.`
     }
 
     /**
+     * Generate formatted quote text with pricing breakdown
+     */
+    async generateQuoteText(parsed, partResults, labourHours, totalCost) {
+        try {
+            if (!this.isConfigured()) {
+                return this.generateFallbackQuoteText(parsed, partResults, labourHours, totalCost);
+            }
+
+            logger.info('Generating quote text with GPT', { 
+                customer: parsed.name,
+                service: parsed.request,
+                totalCost
+            });
+
+            const laborRate = parseInt(process.env.LABOR_RATE || '80');
+            const laborCost = labourHours * laborRate;
+            const partsCost = partResults.reduce((sum, part) => sum + part.price, 0);
+
+            const prompt = `You are a friendly automotive service advisor. Generate a professional quote message based on:
+
+Customer: ${parsed.name}
+Vehicle: ${parsed.vehicle || 'Not specified'}
+Service Request: ${parsed.request}
+
+PRICING BREAKDOWN:
+Labor: ${labourHours} hours × $${laborRate}/hr = $${laborCost}
+Parts: $${partsCost}
+Total: $${totalCost}
+
+Parts Breakdown:
+${partResults.map(part => `• ${part.part}: $${part.price} (${part.vendor})`).join('\n')}
+
+Create a friendly, professional quote message that:
+1. Thanks the customer by name
+2. Provides the service details
+3. Shows clear pricing breakdown
+4. Mentions the quote is valid for 7 days
+5. Encourages them to book or ask questions
+6. Keeps it under 160 characters for SMS if possible, or provide a condensed version
+
+Provide two versions:
+SMS: [Short version for text message]
+EMAIL: [Detailed version for email]`;
+
+            const response = await axios.post(this.apiUrl, {
+                model: this.model,
+                temperature: 0.6,
+                max_tokens: 800,
+                messages: [{ role: 'user', content: prompt }]
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${this.apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: this.timeout
+            });
+
+            const fullResponse = response.data?.choices?.[0]?.message?.content || '';
+            
+            // Extract SMS and EMAIL versions or use full response
+            const smsMatch = fullResponse.match(/SMS:\s*(.+?)(?=EMAIL:|$)/s);
+            const emailMatch = fullResponse.match(/EMAIL:\s*(.+?)$/s);
+            
+            const smsVersion = smsMatch ? smsMatch[1].trim() : fullResponse;
+            const emailVersion = emailMatch ? emailMatch[1].trim() : fullResponse;
+
+            logger.success('Quote text generated', { 
+                customer: parsed.name,
+                smsLength: smsVersion.length,
+                emailLength: emailVersion.length
+            });
+
+            return {
+                sms: smsVersion,
+                email: emailVersion,
+                full: fullResponse
+            };
+
+        } catch (error) {
+            logger.error('Quote text generation error:', error);
+            return this.generateFallbackQuoteText(parsed, partResults, labourHours, totalCost);
+        }
+    }
+
+    /**
+     * Generate fallback quote text when AI is unavailable
+     */
+    generateFallbackQuoteText(parsed, partResults, labourHours, totalCost) {
+        const laborRate = parseInt(process.env.LABOR_RATE || '80');
+        const laborCost = labourHours * laborRate;
+        const partsCost = partResults.reduce((sum, part) => sum + part.price, 0);
+        
+        const businessName = process.env.BUSINESS_NAME || 'Pink Chicken Speed Shop';
+        
+        const smsVersion = `Hi ${parsed.name}! Quote for ${parsed.request}: Labor $${laborCost} + Parts $${partsCost} = $${totalCost}. Valid 7 days. Reply YES to book! - ${businessName}`;
+        
+        const emailVersion = `Dear ${parsed.name},
+
+Thank you for your service request. Here's your quote:
+
+Service: ${parsed.request}
+Vehicle: ${parsed.vehicle || 'As discussed'}
+
+PRICING:
+• Labor: ${labourHours} hrs × $${laborRate}/hr = $${laborCost}
+• Parts: $${partsCost}
+• Total: $${totalCost}
+
+This quote is valid for 7 days. Please contact us to schedule your service.
+
+Best regards,
+${businessName}`;
+
+        return {
+            sms: smsVersion,
+            email: emailVersion,
+            full: smsVersion
+        };
+    }
+
+    /**
      * Build conversation messages for GPT context
      */
     buildConversationMessages(messageBody, conversationHistory, businessName) {

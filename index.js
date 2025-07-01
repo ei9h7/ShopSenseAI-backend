@@ -13,6 +13,8 @@ import techSheetRoutes from './routes/techSheetRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
 import callRoutes from './routes/callRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import quoteController from './controllers/quoteController.js';
+import bookingController from './controllers/bookingController.js';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -92,7 +94,7 @@ app.get('/', (req, res) => {
             quotes: '/api/quotes',
             appointments: '/api/appointments',
             techSheets: '/api/tech-sheets',
-            settings: '/api/settings'
+            settings: '/api/settings',
             calls: '/api/calls',
             notifications: '/api/notifications'
         }
@@ -109,6 +111,29 @@ app.use('/api/tech-sheets', techSheetRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/calls', callRoutes);
 app.use('/api/notifications', notificationRoutes);
+
+// Webhook processing for quote and booking requests
+app.post('/webhook', async (req, res) => {
+    try {
+        const body = req.body;
+        const message = body.message || '';
+
+        logger.info('Webhook received', { message: message.substring(0, 100) });
+
+        if (message.includes('QUOTE_REQUEST')) {
+            await quoteController.handleQuoteRequest(body);
+        } else if (message.includes('BOOK_APPOINTMENT')) {
+            await bookingController.handleBookingRequest(body);
+        } else {
+            logger.info('Unknown webhook request', { message });
+        }
+
+        res.status(200).json({ success: true, message: 'Webhook processed' });
+    } catch (error) {
+        logger.error('Webhook processing error:', error);
+        res.status(500).json({ success: false, error: 'Webhook processing failed' });
+    }
+});
 
 // Legacy webhook endpoint for backwards compatibility
 app.post('/webhooks/openphone', (req, res) => {
@@ -138,7 +163,7 @@ app.use('*', (req, res) => {
             quotes: 'GET /api/quotes',
             appointments: 'GET /api/appointments',
             techSheets: 'GET /api/tech-sheets',
-            settings: 'GET /api/settings'
+            settings: 'GET /api/settings',
             calls: 'GET /api/calls',
             notifications: 'GET /api/notifications'
         }
@@ -167,6 +192,9 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     console.log(`📅 Appointments API: https://torquegpt.onrender.com/api/appointments`);
     console.log(`🔧 Tech Sheets API: https://torquegpt.onrender.com/api/tech-sheets`);
     console.log(`⚙️  Settings API: https://torquegpt.onrender.com/api/settings`);
+    console.log(`📞 Call API: https://torquegpt.onrender.com/api/calls`);
+    console.log(`🔔 Notifications API: https://torquegpt.onrender.com/api/notifications`);
+    console.log(`🔗 Webhook Endpoint: https://torquegpt.onrender.com/webhook`);
     console.log(`✅ ShopSenseAI webhook server deployed successfully!`);
     console.log(`🎯 Tagline: Instant quotes. Automated booking. More wrench time.`);
     console.log(`🌐 Allowed origins: shopsenseai.app, shopsenseai.netlify.app`);
