@@ -17,7 +17,10 @@ app.use(cors({
         const allowedOrigins = [
             'https://shopsenseai.app',
             'https://shopsenseai.netlify.app',
-            'https://clinquant-starship-25fe89.netlify.app'
+            'https://clinquant-starship-25fe89.netlify.app',
+            'http://localhost:5173',
+            'http://localhost:3000',
+            'http://localhost:4173'
         ];
         
         // Check exact matches first
@@ -25,28 +28,13 @@ app.use(cors({
             return callback(null, true);
         }
         
-        // Allow requests from the same port the server is running on
-        const serverPort = process.env.PORT || 10000;
-        if (origin === `http://localhost:${serverPort}` || origin === `https://localhost:${serverPort}`) {
-            return callback(null, true);
-        }
-        
-        // Check dynamic patterns including localhost and webcontainer
-        const dynamicPatterns = [
-            /^http:\/\/localhost:\d+$/,
+        // Check webcontainer patterns (for bolt.new previews)
+        const webcontainerPatterns = [
             /^https:\/\/.*\.webcontainer\.io$/,
-            /^https:\/\/.*\.webcontainer-api\.io$/,
-            /^https:\/\/.*\.bolt\.new$/,
-            /^https:\/\/bolt\.new$/,
-            /^https:\/\/.*\.stackblitz\.com$/,
-            /^https:\/\/stackblitz\.com$/,
-            /^https:\/\/.*\.webcontainer\.dev$/,
-            /^https:\/\/.*-.*\.webcontainer\.io$/,
-            /^https:\/\/.*\.csb\.app$/,
-            /^https:\/\/.*\.codesandbox\.io$/
+            /^https:\/\/.*\.webcontainer-api\.io$/
         ];
         
-        for (const pattern of dynamicPatterns) {
+        for (const pattern of webcontainerPatterns) {
             if (pattern.test(origin)) {
                 return callback(null, true);
             }
