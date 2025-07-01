@@ -3,7 +3,7 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import webhookController from './controllers/webhookController.js';
-import { messageProcessor } from './services/messageProcessor.js';
+import { messageService } from './services/messageService.js';
 import { OpenAIService } from './services/openai.js';
 
 const app = express();
@@ -107,8 +107,8 @@ app.get('/api/settings', (req, res) => {
 // Customer Database API endpoint
 app.get('/api/customers', async (req, res) => {
     try {
-        await messageProcessor.initialize();
-        const customers = messageProcessor.getCustomers();
+        await messageService.initialize();
+        const customers = messageService.getCustomers();
         console.log(`📊 Returning ${customers.length} customers`);
         res.json({ customers });
     }
@@ -124,8 +124,8 @@ app.get('/api/customers', async (req, res) => {
 // Quotes API endpoint
 app.get('/api/quotes', async (req, res) => {
     try {
-        await messageProcessor.initialize();
-        const quotes = messageProcessor.getQuotes();
+        await messageService.initialize();
+        const quotes = messageService.getQuotes();
         console.log(`📊 Returning ${quotes.length} quotes`);
         res.json({ quotes });
     }
@@ -141,8 +141,8 @@ app.get('/api/quotes', async (req, res) => {
 // Appointments API endpoint
 app.get('/api/appointments', async (req, res) => {
     try {
-        await messageProcessor.initialize();
-        const appointments = messageProcessor.getAppointments();
+        await messageService.initialize();
+        const appointments = messageService.getAppointments();
         console.log(`📊 Returning ${appointments.length} appointments`);
         res.json({ appointments });
     }
@@ -158,8 +158,8 @@ app.get('/api/appointments', async (req, res) => {
 // Tech Sheets API endpoint
 app.get('/api/tech-sheets', async (req, res) => {
     try {
-        await messageProcessor.initialize();
-        const techSheets = messageProcessor.getTechSheets();
+        await messageService.initialize();
+        const techSheets = messageService.getTechSheets();
         console.log(`📊 Returning ${techSheets.length} tech sheets`);
         res.json({ techSheets });
     }
@@ -246,18 +246,18 @@ Make the instructions detailed and professional for a working mechanic.`
 app.get('/api/messages', async (req, res) => {
     try {
         // Ensure messageProcessor is initialized
-        await messageProcessor.initialize();
+        await messageService.initialize();
         
         // Check if getMessages method exists
-        if (typeof messageProcessor.getMessages !== 'function') {
-            console.error('❌ getMessages method not found on messageProcessor');
+        if (typeof messageService.getMessages !== 'function') {
+            console.error('❌ getMessages method not found on messageService');
             return res.status(500).json({ 
                 error: 'Message processor not properly initialized',
                 messages: []
             });
         }
         
-        const messages = messageProcessor.getMessages();
+        const messages = messageService.getMessages();
         console.log(`📊 Returning ${messages.length} messages`);
         res.json({ messages });
     }
@@ -274,14 +274,14 @@ app.get('/api/messages', async (req, res) => {
 app.post('/api/messages/:id/read', async (req, res) => {
     try {
         const { id } = req.params;
-        await messageProcessor.initialize();
+        await messageService.initialize();
         
-        if (typeof messageProcessor.markMessageAsRead !== 'function') {
+        if (typeof messageService.markMessageAsRead !== 'function') {
             console.error('❌ markMessageAsRead method not found');
             return res.status(500).json({ error: 'Method not available' });
         }
         
-        messageProcessor.markMessageAsRead(id);
+        messageService.markMessageAsRead(id);
         res.json({ success: true });
     }
     catch (error) {
@@ -298,14 +298,14 @@ app.post('/api/messages/reply', async (req, res) => {
             return res.status(400).json({ error: 'Phone number and message are required' });
         }
         
-        await messageProcessor.initialize();
+        await messageService.initialize();
         
-        if (typeof messageProcessor.sendManualReply !== 'function') {
+        if (typeof messageService.sendManualReply !== 'function') {
             console.error('❌ sendManualReply method not found');
             return res.status(500).json({ error: 'Method not available' });
         }
         
-        await messageProcessor.sendManualReply(phoneNumber, message);
+        await messageService.sendManualReply(phoneNumber, message);
         res.json({ success: true });
     }
     catch (error) {
@@ -385,10 +385,10 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     
     // Initialize messageProcessor on startup
     try {
-        await messageProcessor.initialize();
-        console.log('🤖 MessageProcessor initialized on startup');
+        await messageService.initialize();
+        console.log('🤖 MessageService initialized on startup');
     } catch (error) {
-        console.error('❌ Failed to initialize MessageProcessor on startup:', error);
+        console.error('❌ Failed to initialize MessageService on startup:', error);
     }
 });
 
