@@ -3,7 +3,7 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import webhookController from './controllers/webhookController.js';
-import { messageService } from './services/messageService.js';
+import messageService from './services/messageService.js';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
