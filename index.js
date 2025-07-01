@@ -11,6 +11,8 @@ import quoteRoutes from './routes/quoteRoutes.js';
 import appointmentRoutes from './routes/appointmentRoutes.js';
 import techSheetRoutes from './routes/techSheetRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
+import callRoutes from './routes/callRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js';
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -91,6 +93,8 @@ app.get('/', (req, res) => {
             appointments: '/api/appointments',
             techSheets: '/api/tech-sheets',
             settings: '/api/settings'
+            calls: '/api/calls',
+            notifications: '/api/notifications'
         }
     });
 });
@@ -103,6 +107,8 @@ app.use('/api/quotes', quoteRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/tech-sheets', techSheetRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/calls', callRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Legacy webhook endpoint for backwards compatibility
 app.post('/webhooks/openphone', (req, res) => {
@@ -133,6 +139,8 @@ app.use('*', (req, res) => {
             appointments: 'GET /api/appointments',
             techSheets: 'GET /api/tech-sheets',
             settings: 'GET /api/settings'
+            calls: 'GET /api/calls',
+            notifications: 'GET /api/notifications'
         }
     });
 });
