@@ -543,6 +543,13 @@ class MessageService {
                 
                 logger.success('Booking confirmation sent', { phoneNumber, appointmentId: appointment.id });
             }
+        } catch (error) {
+            logger.error('Error sending booking notification:', error);
+        }
+    }
+}
+
+export default new MessageService();
         }
     }
 }
