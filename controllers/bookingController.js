@@ -225,6 +225,9 @@ class BookingController {
      */
     async createAppointment(parsed) {
         try {
+            // Import calendar service to avoid potential import issues
+            const { default: calendarService } = await import('../services/calendarService.js');
+            
             const appointmentData = {
                 customer_name: parsed.name,
                 customer_phone: parsed.phone,
@@ -249,7 +252,7 @@ class BookingController {
 
             logger.info('Appointment created', {
                 appointmentId,
-                customer: parsed.name,
+                customer: parsed.name || parsed.customer_name,
                 date: parsed.date,
                 time: parsed.time
             });

@@ -380,8 +380,11 @@ class CalendarService {
      * Get all appointments
      */
     async getAllAppointments() {
-        return Array.from(this.appointments.values())
+        const appointments = Array.from(this.appointments.values())
             .sort((a, b) => new Date(a.date + 'T' + a.time).getTime() - new Date(b.date + 'T' + b.time).getTime());
+            
+        logger.debug('Retrieved all appointments', { count: appointments.length });
+        return appointments;
     }
 
     /**

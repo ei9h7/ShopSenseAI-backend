@@ -83,6 +83,12 @@ class MessageService {
                 message.intent = response.intent;
                 message.action = response.action;
 
+                // Check if this is a booking confirmation and create appointment
+                if (response.action && response.action.includes('BOOKING_CONFIRMED:')) {
+                    logger.info('Booking confirmation detected, creating appointment', { action: response.action });
+                    await this.processBookingConfirmation(phoneNumber, response.action);
+                }
+
                 logger.success('Message processed and response sent', { phoneNumber });
                 return { success: true, message: 'Message processed successfully' };
             } else {
@@ -407,6 +413,88 @@ class MessageService {
 
         logger.debug('Message statistics calculated', stats);
         return stats;
+    }
+
+    /**
+     * Process booking confirmation and create actual appointment
+     */
+    async processBookingConfirmation(phoneNumber, action) {
+        try {
+            logger.info('Processing booking confirmation', { phoneNumber, action });
+
+            // Parse the booking details from the action
+            // Format: "BOOKING_CONFIRMED: Name | Phone | Vehicle | Service | Date | Time"
+            const actionParts = action.replace('BOOKING_CONFIRMED:', '').trim().split('|');
+            
+            if (actionParts.length < 6) {
+                logger.warn('Invalid booking confirmation format', { action });
+                return { success: false, error: 'Invalid booking format' };
+            }
+
+            const bookingDetails = {
+                customer_name: actionParts[0].trim(),
+                customer_phone: actionParts[1].trim(),
+                vehicle_info: actionParts[2].trim(),
+                service_type: actionParts[3].trim(),
+                date: actionParts[4].trim(),
+                time: actionParts[5].trim()
+            };
+
+            logger.info('Parsed booking details', bookingDetails);
+
+            // Import booking controller dynamically to avoid circular imports
+            const { default: bookingController } = await import('../controllers/bookingController.js');
+            
+            // Create the appointment using the booking controller
+            const appointmentResult = await bookingController.createAppointment(bookingDetails);
+            
+            if (appointmentResult) {
+                logger.success('Appointment created from booking confirmation', { 
+                    appointmentId: appointmentResult.id,
+                    customer: bookingDetails.customer_name,
+                    date: bookingDetails.date,
+                    time: bookingDetails.time
+                });
+                
+                // Send confirmation message if needed
+                await this.sendBookingNotification(phoneNumber, appointmentResult);
+                
+                return { success: true, appointmentId: appointmentResult.id };
+            } else {
+                logger.error('Failed to create appointment from booking confirmation');
+                return { success: false, error: 'Failed to create appointment' };
+            }
+
+        } catch (error) {
+            logger.error('Error processing booking confirmation:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Send booking notification/confirmation
+     */
+    async sendBookingNotification(phoneNumber, appointment) {
+        try {
+            const confirmationMessage = `✅ Appointment confirmed! ${appointment.date} at ${appointment.time} for ${appointment.service_type}. We'll see you then!`;
+            
+            // Send via OpenPhone
+            const { default: openPhoneService } = await import('./openPhoneService.js');
+            const smsResult = await openPhoneService.sendSMS(phoneNumber, confirmationMessage);
+            
+            if (smsResult.success) {
+                // Store the confirmation message
+                const confirmationMsg = this.createMessage(phoneNumber, confirmationMessage, 'outbound');
+                confirmationMsg.appointment_confirmation = true;
+                confirmationMsg.appointment_id = appointment.id;
+                this.storeMessage(confirmationMsg);
+                
+                logger.success('Booking confirmation sent', { phoneNumber, appointmentId: appointment.id });
+            }
+            
+        } catch (error) {
+            logger.error('Error sending booking notification:', error);
+        }
     }
 }
 
