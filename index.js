@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 import express from 'express';
 import cors from 'cors';
+import database from './config/database.js';
 
 // Import route modules
 import webhookRoutes from './routes/webhookRoutes.js';
@@ -183,6 +184,9 @@ process.on('SIGINT', () => {
 
 // Start server - CRITICAL: Bind to 0.0.0.0 for Render
 const server = app.listen(PORT, '0.0.0.0', async () => {
+    // Initialize database connection
+    await database.connect();
+    
     console.log(`🚀 ShopSenseAI webhook server running on port ${PORT}`);
     console.log(`📡 OpenPhone webhook URL: https://torquegpt.onrender.com/api/webhooks/openphone`);
     console.log(`🏥 Health check: https://torquegpt.onrender.com/health`);
@@ -203,7 +207,21 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
 // Handle server errors
 server.on('error', (error) => {
     console.error('❌ Server error:', error);
+    database.disconnect();
     process.exit(1);
+});
+
+// Graceful shutdown handling
+process.on('SIGTERM', async () => {
+    console.log('🛑 SIGTERM received, shutting down gracefully...');
+    await database.disconnect();
+    process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+    console.log('🛑 SIGINT received, shutting down gracefully...');
+    await database.disconnect();
+    process.exit(0);
 });
 
 export default app;

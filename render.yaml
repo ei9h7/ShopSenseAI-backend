@@ -11,3 +11,10 @@ services:
         value: production
       - key: PORT
         value: 10000
+
+  # PostgreSQL Database (Free tier)
+  - type: pgsql
+    name: torquegpt-db
+    databaseName: shopsenseai
+    user: shopsenseai
+    plan: free

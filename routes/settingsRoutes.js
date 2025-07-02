@@ -1,5 +1,6 @@
 import express from 'express';
 import logger from '../utils/logger.js';
+import database from '../config/database.js';
 
 const router = express.Router();
 
@@ -14,9 +15,15 @@ router.get('/', (req, res) => {
     try {
         logger.info('Fetching server settings');
         
+        // Get database health status
+        const dbHealth = await database.getHealthStatus();
+        
         const settings = {
             openai_configured: !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.length > 10),
             openphone_configured: !!(process.env.OPENPHONE_API_KEY && process.env.OPENPHONE_API_KEY.length > 10),
+            database_configured: dbHealth.connected,
+            database_type: dbHealth.type,
+            database_status: dbHealth.status,
             business_name: process.env.BUSINESS_NAME || 'Pink Chicken Speed Shop',
             labor_rate: parseInt(process.env.LABOR_RATE || '80'),
             dnd_enabled: process.env.DND_ENABLED === 'true',
@@ -24,7 +31,8 @@ router.get('/', (req, res) => {
                 `••••••••${process.env.OPENAI_API_KEY.slice(-4)}` : undefined,
             openphone_key_preview: process.env.OPENPHONE_API_KEY ?
                 `••••••••${process.env.OPENPHONE_API_KEY.slice(-4)}` : undefined,
-            phone_number: process.env.OPENPHONE_PHONE_NUMBER || undefined
+            phone_number: process.env.OPENPHONE_PHONE_NUMBER || undefined,
+            storage: dbHealth.connected ? dbHealth.type : 'memory'
         };
         
         res.json({
@@ -69,11 +77,14 @@ router.post('/', (req, res) => {
 
 // Health endpoint for internal use
 router.get('/health', (req, res) => {
-    res.json({
+    const healthData = {
         status: 'ok',
         service: 'settings',
-        timestamp: new Date().toISOString()
-    });
+        timestamp: new Date().toISOString(),
+        database: database.getHealthStatus()
+    };
+    
+    res.json(healthData);
 });
 
 export default router;

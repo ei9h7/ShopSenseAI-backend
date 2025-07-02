@@ -1,22 +1,21 @@
 import logger from '../utils/logger.js';
+import database from '../config/database.js';
 
 /**
  * Calendar Service
  * 
- * Manages appointment scheduling and calendar integration
+ * Manages appointment scheduling with PostgreSQL persistence and calendar integration
  * Provides availability checking, event creation, and calendar management
  * 
- * TODO: Integrate with Google Calendar API when credentials are available
+ * Phase 1: PostgreSQL storage
+ * Phase 2: Google Calendar API integration (coming soon)
  */
 
 class CalendarService {
     constructor() {
-        this.appointments = new Map(); // In-memory storage (replace with database)
+        this.appointments = new Map(); // Fallback for in-memory storage
         this.businessHours = this.initializeBusinessHours();
         this.googleCalendarConfigured = false;
-        
-        // TODO: Initialize Google Calendar API
-        // this.initializeGoogleCalendar();
     }
 
     /**
@@ -31,6 +30,148 @@ class CalendarService {
             friday: { start: '08:00', end: '17:00', closed: false },
             saturday: { start: '09:00', end: '15:00', closed: false },
             sunday: { start: '00:00', end: '00:00', closed: true }
+        };
+    }
+
+    /**
+     * Store appointment in database or memory
+     */
+    async storeAppointment(appointment) {
+        try {
+            if (database.isPostgreSQL()) {
+                await database.query(`
+                    INSERT INTO appointments (
+                        id, customer_name, customer_phone, customer_email,
+                        vehicle_info, service_type, appointment_date, appointment_time,
+                        duration, notes, status, source, google_event_id
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                `, [
+                    appointment.id,
+                    appointment.customer_name,
+                    appointment.customer_phone,
+                    appointment.customer_email,
+                    appointment.vehicle_info,
+                    appointment.service_type,
+                    appointment.date,
+                    appointment.time,
+                    appointment.duration,
+                    appointment.notes,
+                    appointment.status,
+                    appointment.source,
+                    appointment.google_event_id
+                ]);
+                
+                logger.success('Appointment stored in PostgreSQL', { 
+                    appointmentId: appointment.id,
+                    customer: appointment.customer_name
+                });
+            } else {
+                // Fallback to in-memory storage
+                this.appointments.set(appointment.id, appointment);
+                logger.info('Appointment stored in memory (fallback)', { 
+                    appointmentId: appointment.id 
+                });
+            }
+        } catch (error) {
+            logger.error('Error storing appointment:', error);
+            // Fallback to memory on database error
+            this.appointments.set(appointment.id, appointment);
+        }
+    }
+
+    /**
+     * Retrieve appointment by ID
+     */
+    async getAppointmentById(id) {
+        try {
+            if (database.isPostgreSQL()) {
+                const result = await database.query(
+                    'SELECT * FROM appointments WHERE id = $1', 
+                    [id]
+                );
+                
+                if (result.rows.length > 0) {
+                    return this.formatAppointmentFromDB(result.rows[0]);
+                }
+                return null;
+            } else {
+                return this.appointments.get(id) || null;
+            }
+        } catch (error) {
+            logger.error('Error retrieving appointment:', error);
+            return this.appointments.get(id) || null;
+        }
+    }
+
+    /**
+     * Update appointment in database or memory
+     */
+    async updateAppointment(id, updates) {
+        try {
+            if (database.isPostgreSQL()) {
+                const setClause = Object.keys(updates)
+                    .map((key, index) => `${this.dbColumnName(key)} = $${index + 2}`)
+                    .join(', ');
+                
+                const values = [id, ...Object.values(updates), new Date()];
+                
+                await database.query(`
+                    UPDATE appointments 
+                    SET ${setClause}, updated_at = $${values.length}
+                    WHERE id = $1
+                `, values);
+                
+                logger.success('Appointment updated in PostgreSQL', { appointmentId: id });
+            } else {
+                const appointment = this.appointments.get(id);
+                if (appointment) {
+                    Object.assign(appointment, updates, { updated_at: new Date().toISOString() });
+                    this.appointments.set(id, appointment);
+                }
+            }
+        } catch (error) {
+            logger.error('Error updating appointment:', error);
+            // Fallback to memory update
+            const appointment = this.appointments.get(id);
+            if (appointment) {
+                Object.assign(appointment, updates);
+                this.appointments.set(id, appointment);
+            }
+        }
+    }
+
+    /**
+     * Convert object key to database column name
+     */
+    dbColumnName(key) {
+        const mapping = {
+            'date': 'appointment_date',
+            'time': 'appointment_time'
+        };
+        return mapping[key] || key;
+    }
+
+    /**
+     * Format appointment from database row
+     */
+    formatAppointmentFromDB(row) {
+        return {
+            id: row.id,
+            customer_name: row.customer_name,
+            customer_phone: row.customer_phone,
+            customer_email: row.customer_email,
+            vehicle_info: row.vehicle_info,
+            service_type: row.service_type,
+            date: row.appointment_date,
+            time: row.appointment_time,
+            duration: row.duration,
+            notes: row.notes,
+            status: row.status,
+            source: row.source,
+            google_event_id: row.google_event_id,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            title: `${row.service_type} - ${row.customer_name}`
         };
     }
 
@@ -85,7 +226,7 @@ class CalendarService {
             }
 
             // Check for conflicts with existing appointments
-            const hasConflict = this.hasTimeConflict(this.formatDateString(appointmentDate), timeString, duration);
+            const hasConflict = await this.hasTimeConflict(this.formatDateString(appointmentDate), timeString, duration);
             
             if (hasConflict) {
                 return {
@@ -115,7 +256,7 @@ class CalendarService {
     }
 
     /**
-     * Check for time conflicts more accurately
+     * Check for time conflicts more accurately using database
      */
     async checkDetailedAvailability(date, time, duration = 1) {
         try {
@@ -139,39 +280,9 @@ class CalendarService {
 
             const appointmentEnd = new Date(appointmentStart.getTime() + (duration * 60 * 60 * 1000));
 
-            // Check all existing appointments
-            const conflicts = [];
-            for (const [appointmentId, appointment] of this.appointments) {
-                if (appointment.status === 'cancelled') continue;
-
-                try {
-                    const existingStart = this.parseAppointmentDateTime(appointment.date, appointment.time);
-                    if (!existingStart || isNaN(existingStart.getTime())) continue;
-
-                    const existingEnd = new Date(existingStart.getTime() + ((appointment.duration || 1) * 60 * 60 * 1000));
-
-                    // Check for any overlap
-                    const hasConflict = (appointmentStart < existingEnd && appointmentEnd > existingStart);
-                    
-                    if (hasConflict) {
-                        conflicts.push({
-                            appointmentId,
-                            customer: appointment.customer_name,
-                            conflictTime: `${appointment.date} at ${appointment.time}`,
-                            service: appointment.service_type
-                        });
-                    }
-                } catch (parseError) {
-                    logger.warn('Error parsing existing appointment time', { 
-                        appointmentId, 
-                        date: appointment.date, 
-                        time: appointment.time,
-                        error: parseError.message 
-                    });
-                    continue; // Skip this appointment if can't parse
-                }
-            }
-
+            // Check database for conflicts
+            const conflicts = await this.findTimeConflicts(date, time, duration);
+            
             if (conflicts.length > 0) {
                 logger.warn('Time conflicts detected', { 
                     requestedTime: `${date} at ${time}`,
@@ -203,6 +314,80 @@ class CalendarService {
                 reason: 'Error checking availability',
                 suggestions: []
             };
+        }
+    }
+
+    /**
+     * Find time conflicts in database
+     */
+    async findTimeConflicts(date, time, duration = 1) {
+        try {
+            const conflicts = [];
+            
+            if (database.isPostgreSQL()) {
+                // Use database to check for conflicts
+                const result = await database.query(`
+                    SELECT id, customer_name, service_type, appointment_date, appointment_time, duration
+                    FROM appointments 
+                    WHERE appointment_date = $1 
+                    AND status != 'cancelled'
+                `, [date]);
+
+                for (const row of result.rows) {
+                    const existingStart = this.parseAppointmentDateTime(row.appointment_date, row.appointment_time);
+                    if (!existingStart) continue;
+
+                    const requestedStart = this.parseAppointmentDateTime(date, time);
+                    if (!requestedStart) continue;
+
+                    const existingEnd = new Date(existingStart.getTime() + ((row.duration || 1) * 60 * 60 * 1000));
+                    const requestedEnd = new Date(requestedStart.getTime() + (duration * 60 * 60 * 1000));
+
+                    // Check for overlap
+                    if (requestedStart < existingEnd && requestedEnd > existingStart) {
+                        conflicts.push({
+                            appointmentId: row.id,
+                            customer: row.customer_name,
+                            conflictTime: `${row.appointment_date} at ${row.appointment_time}`,
+                            service: row.service_type
+                        });
+                    }
+                }
+            } else {
+                // Fallback to in-memory check
+                for (const [appointmentId, appointment] of this.appointments) {
+                    if (appointment.status === 'cancelled') continue;
+                    if (appointment.date !== date) continue;
+
+                    try {
+                        const existingStart = this.parseAppointmentDateTime(appointment.date, appointment.time);
+                        if (!existingStart) continue;
+
+                        const requestedStart = this.parseAppointmentDateTime(date, time);
+                        if (!requestedStart) continue;
+
+                        const existingEnd = new Date(existingStart.getTime() + ((appointment.duration || 1) * 60 * 60 * 1000));
+                        const requestedEnd = new Date(requestedStart.getTime() + (duration * 60 * 60 * 1000));
+
+                        if (requestedStart < existingEnd && requestedEnd > existingStart) {
+                            conflicts.push({
+                                appointmentId,
+                                customer: appointment.customer_name,
+                                conflictTime: `${appointment.date} at ${appointment.time}`,
+                                service: appointment.service_type
+                            });
+                        }
+                    } catch (error) {
+                        logger.warn('Error parsing appointment for conflict check', { appointmentId, error: error.message });
+                        continue;
+                    }
+                }
+            }
+
+            return conflicts;
+        } catch (error) {
+            logger.error('Error finding time conflicts:', error);
+            return [];
         }
     }
 
@@ -353,21 +538,21 @@ class CalendarService {
                 source: 'booking_confirmation' // Track how this was created
             };
 
-            // Store locally
-            this.appointments.set(eventId, event);
+            // Store in database or memory
+            await this.storeAppointment(event);
 
             logger.success('Calendar event created and stored', { 
                 eventId, 
                 customer: event.customer_name,
                 service: event.service_type,
-                stored_in_map: this.appointments.has(eventId),
-                total_appointments: this.appointments.size
+                storage: database.isPostgreSQL() ? 'PostgreSQL' : 'memory'
             });
 
-            // TODO: Create in Google Calendar
+            // TODO: Phase 2 - Create in Google Calendar
             // if (this.googleCalendarConfigured) {
             //     const googleEvent = await this.createGoogleCalendarEvent(event);
             //     event.google_event_id = googleEvent.id;
+            //     await this.updateAppointment(eventId, { google_event_id: googleEvent.id });
             // }
 
             return event;
@@ -385,26 +570,17 @@ class CalendarService {
         try {
             logger.info('Updating calendar event', { eventId, updates });
 
-            const event = this.appointments.get(eventId);
-            if (!event) {
-                throw new Error('Event not found');
-            }
+            await this.updateAppointment(eventId, updates);
 
-            // Update event data
-            Object.assign(event, updates, {
-                updated_at: new Date().toISOString()
-            });
-
-            this.appointments.set(eventId, event);
-
-            // TODO: Update Google Calendar event
-            // if (this.googleCalendarConfigured && event.google_event_id) {
-            //     await this.updateGoogleCalendarEvent(event.google_event_id, updates);
+            // TODO: Phase 2 - Update Google Calendar event
+            // if (this.googleCalendarConfigured && updates.google_event_id) {
+            //     await this.updateGoogleCalendarEvent(updates.google_event_id, updates);
             // }
 
+            const updatedEvent = await this.getAppointmentById(eventId);
             logger.success('Calendar event updated', { eventId });
             
-            return event;
+            return updatedEvent;
 
         } catch (error) {
             logger.error('Error updating calendar event:', error);
@@ -419,29 +595,81 @@ class CalendarService {
         try {
             logger.info('Cancelling calendar event', { eventId });
 
-            const event = this.appointments.get(eventId);
-            if (!event) {
-                throw new Error('Event not found');
-            }
+            await this.updateAppointment(eventId, {
+                status: 'cancelled',
+                cancelled_at: new Date().toISOString()
+            });
 
-            // Update status to cancelled
-            event.status = 'cancelled';
-            event.cancelled_at = new Date().toISOString();
-
-            this.appointments.set(eventId, event);
-
-            // TODO: Cancel Google Calendar event
-            // if (this.googleCalendarConfigured && event.google_event_id) {
-            //     await this.cancelGoogleCalendarEvent(event.google_event_id);
+            // TODO: Phase 2 - Cancel Google Calendar event
+            // const appointment = await this.getAppointmentById(eventId);
+            // if (this.googleCalendarConfigured && appointment.google_event_id) {
+            //     await this.cancelGoogleCalendarEvent(appointment.google_event_id);
             // }
 
+            const cancelledEvent = await this.getAppointmentById(eventId);
             logger.success('Calendar event cancelled', { eventId });
             
-            return event;
+            return cancelledEvent;
 
         } catch (error) {
             logger.error('Error cancelling calendar event:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Get all appointments from database or memory
+     */
+    async getAllAppointments() {
+        try {
+            if (database.isPostgreSQL()) {
+                const result = await database.query(`
+                    SELECT * FROM appointments 
+                    WHERE status != 'cancelled'
+                    ORDER BY appointment_date, appointment_time
+                `);
+                
+                const appointments = result.rows.map(row => this.formatAppointmentFromDB(row));
+                
+                logger.info('Retrieved appointments from PostgreSQL', { 
+                    count: appointments.length 
+                });
+                
+                return appointments;
+            } else {
+                // Fallback to in-memory storage
+                const appointments = Array.from(this.appointments.values())
+                    .filter(apt => apt.status !== 'cancelled')
+                    .sort((a, b) => {
+                        const dateA = this.parseAppointmentDateTime(a.date, a.time);
+                        const dateB = this.parseAppointmentDateTime(b.date, b.time);
+                        
+                        if (!dateA || !dateB) return 0;
+                        return dateA.getTime() - dateB.getTime();
+                    });
+                    
+                logger.info('Retrieved appointments from memory', { 
+                    count: appointments.length 
+                });
+                
+                return appointments;
+            }
+        } catch (error) {
+            logger.error('Error getting all appointments:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Check if appointment time conflicts with existing appointments
+     */
+    async hasTimeConflict(date, time, duration) {
+        try {
+            const conflicts = await this.findTimeConflicts(date, time, duration);
+            return conflicts.length > 0;
+        } catch (error) {
+            logger.error('Error checking time conflict:', error);
+            return false; // Default to no conflict if error
         }
     }
 
@@ -470,7 +698,7 @@ class CalendarService {
                 };
             }
 
-            const availableSlots = this.generateTimeSlots(date, businessDay);
+            const availableSlots = await this.generateTimeSlots(date, businessDay);
             
             return {
                 date,
@@ -492,7 +720,7 @@ class CalendarService {
     /**
      * Generate available time slots for a date
      */
-    generateTimeSlots(date, businessDay) {
+    async generateTimeSlots(date, businessDay) {
         const slots = [];
         const startTime = this.timeToMinutes(businessDay.start);
         const endTime = this.timeToMinutes(businessDay.end);
@@ -502,7 +730,8 @@ class CalendarService {
             const timeString = this.minutesToTime(time);
             
             // Check if slot is available
-            if (!this.hasTimeConflict(date, timeString, 1)) {
+            const hasConflict = await this.hasTimeConflict(date, timeString, 1);
+            if (!hasConflict) {
                 slots.push({
                     time: timeString,
                     available: true,
@@ -548,45 +777,6 @@ class CalendarService {
     }
 
     /**
-     * Check if appointment time conflicts with existing appointments
-     */
-    hasTimeConflict(date, time, duration) {
-        try {
-            const appointmentStart = this.parseAppointmentDateTime(date, time);
-            if (!appointmentStart) return false;
-
-            const appointmentEnd = new Date(appointmentStart.getTime() + (duration * 60 * 60 * 1000));
-
-            for (const [, appointment] of this.appointments) {
-                if (appointment.status === 'cancelled') continue;
-                
-                try {
-                    const existingStart = this.parseAppointmentDateTime(appointment.date, appointment.time);
-                    if (!existingStart) continue;
-
-                    const existingEnd = new Date(existingStart.getTime() + ((appointment.duration || 1) * 60 * 60 * 1000));
-
-                    // Check for overlap
-                    if (appointmentStart < existingEnd && appointmentEnd > existingStart) {
-                        return true;
-                    }
-                } catch (error) {
-                    logger.warn('Error parsing existing appointment for conflict check', { 
-                        appointmentId: appointment.id,
-                        error: error.message 
-                    });
-                    continue;
-                }
-            }
-
-            return false;
-        } catch (error) {
-            logger.error('Error checking time conflict:', error);
-            return false; // Default to no conflict if error
-        }
-    }
-
-    /**
      * Check if time is within business hours
      */
     isWithinBusinessHours(time, businessDay) {
@@ -628,75 +818,43 @@ class CalendarService {
     }
 
     /**
-     * Get all appointments
-     */
-    async getAllAppointments() {
-        try {
-            logger.info('Getting all appointments from calendar service', { 
-                total_stored: this.appointments.size 
-            });
-
-            const appointments = Array.from(this.appointments.values())
-                .filter(apt => apt.status !== 'cancelled') // Filter out cancelled appointments
-                .sort((a, b) => {
-                    // Handle different date formats
-                    const dateA = this.parseAppointmentDateTime(a.date, a.time);
-                    const dateB = this.parseAppointmentDateTime(b.date, b.time);
-                    
-                    if (!dateA || !dateB) return 0;
-                    return dateA.getTime() - dateB.getTime();
-                });
-                
-            logger.info('Retrieved all appointments', { 
-                total_count: appointments.length,
-                appointment_details: appointments.map(apt => ({
-                    id: apt.id,
-                    customer: apt.customer_name,
-                    service: apt.service_type,
-                    date: apt.date,
-                    time: apt.time,
-                    status: apt.status
-                }))
-            });
-            
-            return appointments;
-        } catch (error) {
-            logger.error('Error getting all appointments:', error);
-            return [];
-        }
-    }
-
-    /**
      * Get appointments for a specific date
      */
     async getAppointmentsForDate(date) {
         try {
-            const allAppointments = await this.getAllAppointments();
-            const dateAppointments = allAppointments.filter(appointment => {
-                // Handle both day names and dates
-                if (appointment.date.toLowerCase() === date.toLowerCase()) {
-                    return true;
-                }
+            if (database.isPostgreSQL()) {
+                const result = await database.query(`
+                    SELECT * FROM appointments 
+                    WHERE appointment_date = $1 AND status != 'cancelled'
+                    ORDER BY appointment_time
+                `, [date]);
                 
-                // Parse both dates and compare
-                const appointmentDate = this.parseAppointmentDateTime(appointment.date, appointment.time);
-                const targetDate = this.parseAppointmentDateTime(date, '00:00');
-                
-                if (appointmentDate && targetDate) {
-                    return appointmentDate.toDateString() === targetDate.toDateString();
-                }
-                
-                return false;
-            });
-
-            return dateAppointments.sort((a, b) => {
-                const timeA = this.parseTimeString(a.time);
-                const timeB = this.parseTimeString(b.time);
-                
-                if (!timeA || !timeB) return 0;
-                
-                return (timeA.hours * 60 + timeA.minutes) - (timeB.hours * 60 + timeB.minutes);
-            });
+                return result.rows.map(row => this.formatAppointmentFromDB(row));
+            } else {
+                // Fallback to in-memory
+                const allAppointments = await this.getAllAppointments();
+                return allAppointments.filter(appointment => {
+                    if (appointment.date.toLowerCase() === date.toLowerCase()) {
+                        return true;
+                    }
+                    
+                    const appointmentDate = this.parseAppointmentDateTime(appointment.date, appointment.time);
+                    const targetDate = this.parseAppointmentDateTime(date, '00:00');
+                    
+                    if (appointmentDate && targetDate) {
+                        return appointmentDate.toDateString() === targetDate.toDateString();
+                    }
+                    
+                    return false;
+                }).sort((a, b) => {
+                    const timeA = this.parseTimeString(a.time);
+                    const timeB = this.parseTimeString(b.time);
+                    
+                    if (!timeA || !timeB) return 0;
+                    
+                    return (timeA.hours * 60 + timeA.minutes) - (timeB.hours * 60 + timeB.minutes);
+                });
+            }
         } catch (error) {
             logger.error('Error getting appointments for date:', error);
             return [];
@@ -706,19 +864,53 @@ class CalendarService {
     /**
      * Get calendar statistics
      */
-    getCalendarStats() {
-        const appointments = Array.from(this.appointments.values());
-        
-        return {
-            total: appointments.length,
-            confirmed: appointments.filter(a => a.status === 'confirmed').length,
-            cancelled: appointments.filter(a => a.status === 'cancelled').length,
-            completed: appointments.filter(a => a.status === 'completed').length,
-            googleCalendarConfigured: this.googleCalendarConfigured
-        };
+    async getCalendarStats() {
+        try {
+            if (database.isPostgreSQL()) {
+                const result = await database.query(`
+                    SELECT 
+                        COUNT(*) as total,
+                        COUNT(CASE WHEN status = 'confirmed' THEN 1 END) as confirmed,
+                        COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled,
+                        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed
+                    FROM appointments
+                `);
+                
+                const stats = result.rows[0];
+                return {
+                    total: parseInt(stats.total),
+                    confirmed: parseInt(stats.confirmed),
+                    cancelled: parseInt(stats.cancelled),
+                    completed: parseInt(stats.completed),
+                    storage: 'PostgreSQL',
+                    googleCalendarConfigured: this.googleCalendarConfigured
+                };
+            } else {
+                const appointments = Array.from(this.appointments.values());
+                
+                return {
+                    total: appointments.length,
+                    confirmed: appointments.filter(a => a.status === 'confirmed').length,
+                    cancelled: appointments.filter(a => a.status === 'cancelled').length,
+                    completed: appointments.filter(a => a.status === 'completed').length,
+                    storage: 'Memory',
+                    googleCalendarConfigured: this.googleCalendarConfigured
+                };
+            }
+        } catch (error) {
+            logger.error('Error getting calendar stats:', error);
+            return {
+                total: 0,
+                confirmed: 0,
+                cancelled: 0,
+                completed: 0,
+                storage: 'Error',
+                googleCalendarConfigured: false
+            };
+        }
     }
 
-    // TODO: Google Calendar Integration Methods
+    // TODO: Phase 2 - Google Calendar Integration Methods
     // async initializeGoogleCalendar() {
     //     // Initialize Google Calendar API with service account
     // }
