@@ -134,11 +134,19 @@ class CalendarService {
                 notes: appointmentData.notes || '',
                 status: 'confirmed',
                 created_at: new Date().toISOString(),
-                google_event_id: null // Will be set when Google Calendar is integrated
+                google_event_id: null, // Will be set when Google Calendar is integrated
+                source: 'booking_confirmation' // Track how this was created
             };
 
             // Store locally
             this.appointments.set(eventId, event);
+
+            logger.success('Calendar event created and stored', { 
+                eventId, 
+                customer: event.customer_name,
+                service: event.service_type,
+                stored_in_map: this.appointments.has(eventId)
+            });
 
             // TODO: Create in Google Calendar
             // if (this.googleCalendarConfigured) {
@@ -146,8 +154,6 @@ class CalendarService {
             //     event.google_event_id = googleEvent.id;
             // }
 
-            logger.success('Calendar event created', { eventId });
-            
             return event;
 
         } catch (error) {

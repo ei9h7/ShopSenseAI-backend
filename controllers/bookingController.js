@@ -225,8 +225,11 @@ class BookingController {
      */
     async createAppointment(parsed) {
         try {
-            // Import calendar service to avoid potential import issues
-            const { default: calendarService } = await import('../services/calendarService.js');
+            logger.info('Creating appointment', {
+                customer: parsed.name || parsed.customer_name,
+                date: parsed.date,
+                time: parsed.time
+            });
             
             const appointmentData = {
                 customer_name: parsed.name || parsed.customer_name,
@@ -242,13 +245,14 @@ class BookingController {
                 created_at: new Date().toISOString()
             };
 
-            // Create calendar event
+            // Import calendar service
+            const { default: calendarService } = await import('../services/calendarService.js');
+            
+            // Create calendar event (this will set the ID and store the appointment)
             const calendarEvent = await calendarService.createEvent(appointmentData);
-            appointmentData.calendar_event_id = calendarEvent.id;
 
-            // Store appointment (in production, save to database)
-            const appointmentId = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 9);
-            appointmentData.id = appointmentId;
+            // Use the same ID from calendar event - no separate appointment ID needed
+            const appointmentId = calendarEvent.id;
 
             logger.info('Appointment data created', {
                 appointmentId,
@@ -257,14 +261,9 @@ class BookingController {
                 date: appointmentData.date,
                 time: appointmentData.time
             });
-            logger.info('Appointment created', {
-                appointmentId,
-                customer: parsed.name || parsed.customer_name,
-                date: parsed.date,
-                time: parsed.time
-            });
 
-            return appointmentData;
+            // Return the calendar event (which IS the appointment)
+            return calendarEvent;
 
         } catch (error) {
             logger.error('Error creating appointment:', error);

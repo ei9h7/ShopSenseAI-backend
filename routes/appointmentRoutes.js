@@ -23,6 +23,21 @@ router.get('/', async (req, res) => {
         logger.info('Fetching appointments via API');
         const appointments = await calendarService.getAllAppointments();
         
+        // Debug: Show what's actually in the calendar service
+        logger.info('Raw appointments from calendar service', {
+            count: appointments.length,
+            appointment_ids: appointments.map(apt => apt.id),
+            appointment_details: appointments.map(apt => ({
+                id: apt.id,
+                customer: apt.customer_name,
+                service: apt.service_type,
+                date: apt.date,
+                time: apt.time,
+                status: apt.status,
+                source: apt.source
+            }))
+        });
+        
         logger.info('Appointments retrieved for API', {
             count: appointments.length,
             appointments: appointments.map(apt => ({

@@ -453,6 +453,58 @@ class MessageService {
                     appointmentId: appointmentResult.id,
                     customer: bookingDetails.name,
                     date: bookingDetails.date,
+                    time: bookingDetails.time,
+                    service: appointmentResult.service_type
+                });
+                
+                // Verify appointment was stored in calendar service
+                const { default: calendarService } = await import('./calendarService.js');
+                const allAppointments = await calendarService.getAllAppointments();
+                const wasStored = allAppointments.find(apt => apt.id === appointmentResult.id);
+                
+                logger.info('Appointment storage verification', {
+                    appointmentId: appointmentResult.id,
+                    wasStored: !!wasStored,
+                    totalAppointments: allAppointments.length
+                });
+                
+                // Send confirmation message
+                await this.sendBookingNotification(phoneNumber, appointmentResult);
+                
+                return { success: true, appointmentId: appointmentResult.id };
+            } else {
+                logger.error('Failed to create appointment from booking confirmation');
+                return { success: false, error: 'Failed to create appointment' };
+            }
+
+        } catch (error) {
+            logger.error('Error processing booking confirmation:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * Send booking notification/confirmation
+     */
+    async sendBookingNotification(phoneNumber, appointment) {
+        try {
+            const confirmationMessage = `✅ Appointment confirmed! ${appointment.date} at ${appointment.time} for ${appointment.service_type || appointment.service || 'your service'}. We'll see you then!`;
+            
+            // Send via OpenPhone
+            const { default: openPhoneService } = await import('./openPhoneService.js');
+            const smsResult = await openPhoneService.sendSMS(phoneNumber, confirmationMessage);
+            
+            if (smsResult.success) {
+                // Store the confirmation message
+                const confirmationMsg = this.createMessage(phoneNumber, confirmationMessage, 'outbound');
+                confirmationMsg.appointment_confirmation = true;
+                confirmationMsg.appointment_id = appointment.id;
+                this.storeMessage(confirmationMsg);
+                
+                logger.success('Appointment created from booking confirmation', { 
+                    appointmentId: appointmentResult.id,
+                    customer: bookingDetails.name,
+                    date: bookingDetails.date,
                     time: bookingDetails.time
                 });
                 
@@ -490,12 +542,4 @@ class MessageService {
                 this.storeMessage(confirmationMsg);
                 
                 logger.success('Booking confirmation sent', { phoneNumber, appointmentId: appointment.id });
-            }
-            
-        } catch (error) {
-            logger.error('Error sending booking notification:', error);
-        }
-    }
-}
-
 export default new MessageService();
