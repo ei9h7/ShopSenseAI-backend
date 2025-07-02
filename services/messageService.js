@@ -448,7 +448,7 @@ class MessageService {
             // Create the appointment using the booking controller
             const appointmentResult = await bookingController.createAppointment(bookingDetails);
             
-            if (appointmentResult) {
+            if (appointmentResult && appointmentResult.success !== false) {
                 logger.success('Appointment created from booking confirmation', { 
                     appointmentId: appointmentResult.id,
                     customer: bookingDetails.name,
@@ -472,6 +472,21 @@ class MessageService {
                 await this.sendBookingNotification(phoneNumber, appointmentResult);
                 
                 return { success: true, appointmentId: appointmentResult.id };
+            } else if (appointmentResult && appointmentResult.conflict) {
+                logger.warn('Booking conflict detected', {
+                    customer: bookingDetails.name,
+                    requestedTime: `${bookingDetails.date} at ${bookingDetails.time}`,
+                    conflicts: appointmentResult.conflicts
+                });
+                
+                // Send conflict notification to customer
+                await this.sendConflictNotification(phoneNumber, bookingDetails, appointmentResult);
+                
+                return { 
+                    success: false, 
+                    conflict: true, 
+                    reason: appointmentResult.reason 
+                };
             } else {
                 logger.error('Failed to create appointment from booking confirmation');
                 return { success: false, error: 'Failed to create appointment' };
@@ -505,6 +520,46 @@ class MessageService {
             }
         } catch (error) {
             logger.error('Error sending booking notification:', error);
+        }
+    }
+
+    /**
+     * Send conflict notification when appointment can't be booked
+     */
+    async sendConflictNotification(phoneNumber, bookingDetails, conflictInfo) {
+        try {
+            let conflictMessage = `Sorry ${bookingDetails.name}, ${bookingDetails.date} at ${bookingDetails.time} is not available. `;
+            
+            if (conflictInfo.conflicts && conflictInfo.conflicts.length > 0) {
+                conflictMessage += `There's already an appointment scheduled at that time. `;
+            }
+            
+            if (conflictInfo.suggestions && conflictInfo.suggestions.length > 0) {
+                conflictMessage += '\n\nAvailable times:\n';
+                conflictInfo.suggestions.slice(0, 3).forEach((suggestion, index) => {
+                    conflictMessage += `${index + 1}. ${suggestion.date} at ${suggestion.time}\n`;
+                });
+                conflictMessage += '\nReply with the number of your preferred time!';
+            } else {
+                conflictMessage += 'Please suggest another time or call us to check availability.';
+            }
+            
+            // Send conflict message
+            const { default: openPhoneService } = await import('./openPhoneService.js');
+            const smsResult = await openPhoneService.sendSMS(phoneNumber, conflictMessage);
+            
+            if (smsResult.success) {
+                // Store the conflict message
+                const conflictMsg = this.createMessage(phoneNumber, conflictMessage, 'outbound');
+                conflictMsg.appointment_conflict = true;
+                conflictMsg.conflict_reason = conflictInfo.reason;
+                this.storeMessage(conflictMsg);
+                
+                logger.success('Conflict notification sent', { phoneNumber });
+            }
+            
+        } catch (error) {
+            logger.error('Error sending conflict notification:', error);
         }
     }
 }
