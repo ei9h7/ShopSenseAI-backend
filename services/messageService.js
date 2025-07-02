@@ -542,4 +542,8 @@ class MessageService {
                 this.storeMessage(confirmationMsg);
                 
                 logger.success('Booking confirmation sent', { phoneNumber, appointmentId: appointment.id });
+            }
+        }
+    }
+}
 export default new MessageService();
