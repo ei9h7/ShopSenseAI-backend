@@ -248,6 +248,31 @@ class BookingController {
             // Import calendar service
             const { default: calendarService } = await import('../services/calendarService.js');
             
+            // Check availability first with enhanced conflict detection
+            const availabilityCheck = await calendarService.checkDetailedAvailability(
+                parsed.date, 
+                parsed.time, 
+                parsed.duration || 1
+            );
+            
+            if (!availabilityCheck.available) {
+                logger.warn('Booking conflicts detected', {
+                    customer: parsed.name || parsed.customer_name,
+                    requestedTime: `${parsed.date} at ${parsed.time}`,
+                    reason: availabilityCheck.reason,
+                    conflicts: availabilityCheck.conflicts
+                });
+                
+                // Instead of throwing error, return conflict info
+                return {
+                    success: false,
+                    conflict: true,
+                    reason: availabilityCheck.reason,
+                    conflicts: availabilityCheck.conflicts,
+                    suggestions: availabilityCheck.suggestions
+                };
+            }
+            
             // Create calendar event (this will set the ID and store the appointment)
             const calendarEvent = await calendarService.createEvent(appointmentData);
 
@@ -266,8 +291,19 @@ class BookingController {
             return calendarEvent;
 
         } catch (error) {
-            logger.error('Error creating appointment:', error);
-            throw error;
+            if (error.message.includes('Time slot not available')) {
+                logger.warn('Appointment creation blocked due to conflict', { error: error.message });
+                return {
+                    success: false,
+                    conflict: true,
+                    reason: error.message,
+                    conflicts: [],
+                    suggestions: []
+                };
+            } else {
+                logger.error('Error creating appointment:', error);
+                throw error;
+            }
         }
     }
 

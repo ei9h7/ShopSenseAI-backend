@@ -108,10 +108,151 @@ class CalendarService {
     }
 
     /**
+     * Check for time conflicts more accurately
+     */
+    async checkDetailedAvailability(date, time, duration = 1) {
+        try {
+            logger.info('Checking detailed availability', { date, time, duration });
+
+            // First do basic validation
+            const basicCheck = await this.checkAvailability(date, time, duration);
+            if (!basicCheck.available) {
+                return basicCheck;
+            }
+
+            // Enhanced conflict checking for exact time slots
+            const appointmentStart = this.parseAppointmentDateTime(date, time);
+            const appointmentEnd = new Date(appointmentStart.getTime() + (duration * 60 * 60 * 1000));
+
+            // Check all existing appointments
+            const conflicts = [];
+            for (const [appointmentId, appointment] of this.appointments) {
+                if (appointment.status === 'cancelled') continue;
+
+                const existingStart = this.parseAppointmentDateTime(appointment.date, appointment.time);
+                const existingEnd = new Date(existingStart.getTime() + (appointment.duration * 60 * 60 * 1000));
+
+                // Check for any overlap
+                const hasConflict = (appointmentStart < existingEnd && appointmentEnd > existingStart);
+                
+                if (hasConflict) {
+                    conflicts.push({
+                        appointmentId,
+                        customer: appointment.customer_name,
+                        conflictTime: `${appointment.date} at ${appointment.time}`,
+                        service: appointment.service_type
+                    });
+                }
+            }
+
+            if (conflicts.length > 0) {
+                logger.warn('Time conflicts detected', { 
+                    requestedTime: `${date} at ${time}`,
+                    conflicts: conflicts.length,
+                    conflictDetails: conflicts
+                });
+
+                return {
+                    available: false,
+                    reason: `Time slot conflicts with existing appointment(s)`,
+                    conflicts,
+                    suggestions: await this.getNextAvailableSlots(3)
+                };
+            }
+
+            logger.success('Time slot available - no conflicts', { date, time });
+            return {
+                available: true,
+                date,
+                time,
+                duration,
+                verified: true
+            };
+
+        } catch (error) {
+            logger.error('Error checking detailed availability:', error);
+            return {
+                available: false,
+                reason: 'Error checking availability',
+                suggestions: []
+            };
+        }
+    }
+
+    /**
+     * Parse appointment date and time into a proper Date object
+     */
+    parseAppointmentDateTime(date, time) {
+        try {
+            // Handle day names like "Friday"
+            if (['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].includes(date.toLowerCase())) {
+                const today = new Date();
+                const dayMap = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+                const targetDay = dayMap[date.toLowerCase()];
+                const daysUntilTarget = (targetDay - today.getDay() + 7) % 7 || 7; // Next occurrence
+                
+                const appointmentDate = new Date(today);
+                appointmentDate.setDate(today.getDate() + daysUntilTarget);
+                
+                // Parse time more accurately
+                const timeLower = time.toLowerCase().replace(/\s+/g, '');
+                let hours = 0;
+                let minutes = 0;
+                
+                // Handle various time formats
+                if (timeLower.includes('pm') || timeLower.includes('am')) {
+                    const match = timeLower.match(/(\d{1,2}):?(\d{0,2})(am|pm)/);
+                    if (match) {
+                        hours = parseInt(match[1]);
+                        minutes = parseInt(match[2] || 0);
+                        const ampm = match[3];
+                        
+                        if (ampm === 'pm' && hours !== 12) hours += 12;
+                        if (ampm === 'am' && hours === 12) hours = 0;
+                    }
+                } else {
+                    // 24-hour format or plain number
+                    const match = timeLower.match(/(\d{1,2}):?(\d{0,2})/);
+                    if (match) {
+                        hours = parseInt(match[1]);
+                        minutes = parseInt(match[2] || 0);
+                    }
+                }
+                
+                appointmentDate.setHours(hours, minutes, 0, 0);
+                return appointmentDate;
+            }
+            
+            // Handle ISO dates or other formats
+            return new Date(date + 'T' + time);
+        } catch (error) {
+            logger.warn('Error parsing appointment date/time', { date, time, error: error.message });
+            return new Date(); // Fallback to current time
+        }
+    }
+
+    /**
      * Create calendar event/appointment
      */
     async createEvent(appointmentData) {
         try {
+            // Check for conflicts before creating
+            const availabilityCheck = await this.checkDetailedAvailability(
+                appointmentData.date, 
+                appointmentData.time, 
+                appointmentData.duration || 1
+            );
+            
+            if (!availabilityCheck.available) {
+                logger.warn('Cannot create appointment - time conflict', {
+                    date: appointmentData.date,
+                    time: appointmentData.time,
+                    conflicts: availabilityCheck.conflicts
+                });
+                
+                throw new Error(`Time slot not available: ${availabilityCheck.reason}`);
+            }
+            
             logger.info('Creating calendar event', {
                 customer: appointmentData.customer_name,
                 date: appointmentData.date,
