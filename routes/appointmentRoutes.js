@@ -20,7 +20,21 @@ const appointments = new Map();
 // Get all appointments
 router.get('/', async (req, res) => {
     try {
+        logger.info('Fetching appointments via API');
         const appointments = await calendarService.getAllAppointments();
+        
+        logger.info('Appointments retrieved for API', {
+            count: appointments.length,
+            appointments: appointments.map(apt => ({
+                id: apt.id,
+                customer: apt.customer_name,
+                service: apt.service_type,
+                date: apt.date,
+                time: apt.time,
+                status: apt.status
+            }))
+        });
+        
         res.json({
             success: true,
             appointments,

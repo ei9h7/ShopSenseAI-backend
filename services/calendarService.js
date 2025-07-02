@@ -381,12 +381,109 @@ class CalendarService {
      */
     async getAllAppointments() {
         const appointments = Array.from(this.appointments.values())
-            .sort((a, b) => new Date(a.date + 'T' + a.time).getTime() - new Date(b.date + 'T' + b.time).getTime());
+            .filter(apt => apt.status !== 'cancelled') // Filter out cancelled appointments
+            .sort((a, b) => {
+                // Handle different date formats
+                const dateA = this.parseAppointmentDate(a.date, a.time);
+                const dateB = this.parseAppointmentDate(b.date, b.time);
+                return dateA.getTime() - dateB.getTime();
+            });
             
         logger.debug('Retrieved all appointments', { count: appointments.length });
+        
+        // Format appointments for frontend compatibility
+        const formattedAppointments = appointments.map(apt => ({
+            ...apt,
+            formatted_date: this.formatDateForFrontend(apt.date),
+            formatted_time: this.formatTimeForFrontend(apt.time),
+            display_name: `${apt.customer_name} - ${apt.service_type}`,
+            status_color: this.getStatusColor(apt.status)
+        }));
+        
         return appointments;
     }
 
+    /**
+     * Parse appointment date/time handling various formats
+     */
+    parseAppointmentDate(date, time) {
+        try {
+            // Handle day names like "Friday"
+            if (['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].includes(date.toLowerCase())) {
+                const today = new Date();
+                const dayMap = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+                const targetDay = dayMap[date.toLowerCase()];
+                const daysUntilTarget = (targetDay - today.getDay() + 7) % 7 || 7; // Next occurrence
+                
+                const appointmentDate = new Date(today);
+                appointmentDate.setDate(today.getDate() + daysUntilTarget);
+                
+                // Parse time
+                const timeParts = time.toLowerCase().replace(/\s+/g, '').match(/(\d{1,2}):?(\d{0,2})(am|pm)?/);
+                if (timeParts) {
+                    let hours = parseInt(timeParts[1]);
+                    const minutes = parseInt(timeParts[2] || 0);
+                    const ampm = timeParts[3];
+                    
+                    if (ampm === 'pm' && hours !== 12) hours += 12;
+                    if (ampm === 'am' && hours === 12) hours = 0;
+                    
+                    appointmentDate.setHours(hours, minutes, 0, 0);
+                }
+                
+                return appointmentDate;
+            }
+            
+            // Handle ISO dates or other formats
+            return new Date(date + 'T' + time);
+        } catch (error) {
+            logger.warn('Error parsing appointment date/time', { date, time, error: error.message });
+            return new Date(); // Fallback to current time
+        }
+    }
+
+    /**
+     * Format date for frontend display
+     */
+    formatDateForFrontend(date) {
+        const parsedDate = this.parseAppointmentDate(date, '12:00');
+        return parsedDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+    }
+
+    /**
+     * Format time for frontend display
+     */
+    formatTimeForFrontend(time) {
+        // Normalize time format
+        const normalizedTime = time.toLowerCase().replace(/\s+/g, '');
+        const timeParts = normalizedTime.match(/(\d{1,2}):?(\d{0,2})(am|pm)?/);
+        
+        if (timeParts) {
+            let hours = parseInt(timeParts[1]);
+            const minutes = parseInt(timeParts[2] || 0);
+            const ampm = timeParts[3];
+            
+            if (ampm === 'pm' && hours !== 12) hours += 12;
+            if (ampm === 'am' && hours === 12) hours = 0;
+            
+            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+        }
+        
+        return time; // Return original if parsing fails
+    }
+
+    /**
+     * Get status color for frontend
+     */
+    getStatusColor(status) {
+        const colorMap = {
+            confirmed: '#16a34a',   // Green
+            pending: '#f59e0b',     // Amber  
+            completed: '#06b6d4',   // Cyan
+            cancelled: '#ef4444'    // Red
+        };
+        return colorMap[status] || '#6b7280'; // Default gray
+    }
     /**
      * Get appointments for a specific date
      */

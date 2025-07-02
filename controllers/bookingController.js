@@ -229,11 +229,11 @@ class BookingController {
             const { default: calendarService } = await import('../services/calendarService.js');
             
             const appointmentData = {
-                customer_name: parsed.name,
-                customer_phone: parsed.phone,
-                customer_email: parsed.email,
-                vehicle_info: parsed.vehicle,
-                service_type: parsed.service,
+                customer_name: parsed.name || parsed.customer_name,
+                customer_phone: parsed.phone || parsed.customer_phone,
+                customer_email: parsed.email || parsed.customer_email,
+                vehicle_info: parsed.vehicle || parsed.vehicle_info,
+                service_type: parsed.service || parsed.service_type,
                 date: parsed.date,
                 time: parsed.time,
                 duration: 1, // Default 1 hour
@@ -250,6 +250,13 @@ class BookingController {
             const appointmentId = Date.now().toString() + '_' + Math.random().toString(36).substr(2, 9);
             appointmentData.id = appointmentId;
 
+            logger.info('Appointment data created', {
+                appointmentId,
+                customer: appointmentData.customer_name,
+                service: appointmentData.service_type,
+                date: appointmentData.date,
+                time: appointmentData.time
+            });
             logger.info('Appointment created', {
                 appointmentId,
                 customer: parsed.name || parsed.customer_name,

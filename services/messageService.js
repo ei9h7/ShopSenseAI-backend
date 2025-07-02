@@ -432,10 +432,10 @@ class MessageService {
             }
 
             const bookingDetails = {
-                customer_name: actionParts[0].trim(),
-                customer_phone: actionParts[1].trim(),
-                vehicle_info: actionParts[2].trim(),
-                service_type: actionParts[3].trim(),
+                name: actionParts[0].trim(),              // Use 'name' instead of 'customer_name'
+                phone: actionParts[1].trim(),             // Use 'phone' instead of 'customer_phone'  
+                vehicle: actionParts[2].trim(),           // Use 'vehicle' instead of 'vehicle_info'
+                service: actionParts[3].trim(),           // Use 'service' instead of 'service_type'
                 date: actionParts[4].trim(),
                 time: actionParts[5].trim()
             };
@@ -451,7 +451,7 @@ class MessageService {
             if (appointmentResult) {
                 logger.success('Appointment created from booking confirmation', { 
                     appointmentId: appointmentResult.id,
-                    customer: bookingDetails.customer_name,
+                    customer: bookingDetails.name,
                     date: bookingDetails.date,
                     time: bookingDetails.time
                 });
@@ -476,7 +476,7 @@ class MessageService {
      */
     async sendBookingNotification(phoneNumber, appointment) {
         try {
-            const confirmationMessage = `✅ Appointment confirmed! ${appointment.date} at ${appointment.time} for ${appointment.service_type}. We'll see you then!`;
+            const confirmationMessage = `✅ Appointment confirmed! ${appointment.date} at ${appointment.time} for ${appointment.service_type || appointment.service || 'your service'}. We'll see you then!`;
             
             // Send via OpenPhone
             const { default: openPhoneService } = await import('./openPhoneService.js');
