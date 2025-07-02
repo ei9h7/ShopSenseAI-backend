@@ -42,13 +42,19 @@ class CalendarService {
             logger.info('Checking availability', { date, time, duration });
 
             // Validate date format
-            const appointmentDate = new Date(date + 'T' + time);
-            if (isNaN(appointmentDate.getTime())) {
-                throw new Error('Invalid date or time format');
+            const appointmentDate = this.parseAppointmentDateTime(date, time);
+            if (!appointmentDate || isNaN(appointmentDate.getTime())) {
+                logger.warn('Invalid date or time format', { date, time });
+                return {
+                    available: false,
+                    reason: 'Invalid date or time format',
+                    suggestions: await this.getNextAvailableSlots(3)
+                };
             }
 
-            // Check if date is in the past
-            if (appointmentDate < new Date()) {
+            // Check if date is in the past (with some tolerance for today)
+            const now = new Date();
+            if (appointmentDate < now && appointmentDate.toDateString() !== now.toDateString()) {
                 return {
                     available: false,
                     reason: 'Cannot schedule appointments in the past',
@@ -69,22 +75,23 @@ class CalendarService {
             }
 
             // Check if time is within business hours
-            if (!this.isWithinBusinessHours(time, businessDay)) {
+            const timeString = appointmentDate.toTimeString().substring(0, 5); // HH:MM format
+            if (!this.isWithinBusinessHours(timeString, businessDay)) {
                 return {
                     available: false,
                     reason: `Outside business hours (${businessDay.start} - ${businessDay.end})`,
-                    suggestions: await this.getAvailableSlotsForDate(date)
+                    suggestions: await this.getAvailableSlotsForDate(this.formatDateString(appointmentDate))
                 };
             }
 
             // Check for conflicts with existing appointments
-            const hasConflict = this.hasTimeConflict(date, time, duration);
+            const hasConflict = this.hasTimeConflict(this.formatDateString(appointmentDate), timeString, duration);
             
             if (hasConflict) {
                 return {
                     available: false,
                     reason: 'Time slot already booked',
-                    suggestions: await this.getAvailableSlotsForDate(date)
+                    suggestions: await this.getAvailableSlotsForDate(this.formatDateString(appointmentDate))
                 };
             }
 
@@ -122,6 +129,14 @@ class CalendarService {
 
             // Enhanced conflict checking for exact time slots
             const appointmentStart = this.parseAppointmentDateTime(date, time);
+            if (!appointmentStart || isNaN(appointmentStart.getTime())) {
+                return {
+                    available: false,
+                    reason: 'Invalid date/time format',
+                    suggestions: await this.getNextAvailableSlots(3)
+                };
+            }
+
             const appointmentEnd = new Date(appointmentStart.getTime() + (duration * 60 * 60 * 1000));
 
             // Check all existing appointments
@@ -129,19 +144,31 @@ class CalendarService {
             for (const [appointmentId, appointment] of this.appointments) {
                 if (appointment.status === 'cancelled') continue;
 
-                const existingStart = this.parseAppointmentDateTime(appointment.date, appointment.time);
-                const existingEnd = new Date(existingStart.getTime() + (appointment.duration * 60 * 60 * 1000));
+                try {
+                    const existingStart = this.parseAppointmentDateTime(appointment.date, appointment.time);
+                    if (!existingStart || isNaN(existingStart.getTime())) continue;
 
-                // Check for any overlap
-                const hasConflict = (appointmentStart < existingEnd && appointmentEnd > existingStart);
-                
-                if (hasConflict) {
-                    conflicts.push({
-                        appointmentId,
-                        customer: appointment.customer_name,
-                        conflictTime: `${appointment.date} at ${appointment.time}`,
-                        service: appointment.service_type
+                    const existingEnd = new Date(existingStart.getTime() + ((appointment.duration || 1) * 60 * 60 * 1000));
+
+                    // Check for any overlap
+                    const hasConflict = (appointmentStart < existingEnd && appointmentEnd > existingStart);
+                    
+                    if (hasConflict) {
+                        conflicts.push({
+                            appointmentId,
+                            customer: appointment.customer_name,
+                            conflictTime: `${appointment.date} at ${appointment.time}`,
+                            service: appointment.service_type
+                        });
+                    }
+                } catch (parseError) {
+                    logger.warn('Error parsing existing appointment time', { 
+                        appointmentId, 
+                        date: appointment.date, 
+                        time: appointment.time,
+                        error: parseError.message 
                     });
+                    continue; // Skip this appointment if can't parse
                 }
             }
 
@@ -184,51 +211,115 @@ class CalendarService {
      */
     parseAppointmentDateTime(date, time) {
         try {
+            logger.debug('Parsing appointment date/time', { date, time });
+
             // Handle day names like "Friday"
             if (['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].includes(date.toLowerCase())) {
                 const today = new Date();
                 const dayMap = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
                 const targetDay = dayMap[date.toLowerCase()];
-                const daysUntilTarget = (targetDay - today.getDay() + 7) % 7 || 7; // Next occurrence
+                
+                // Find next occurrence of this day
+                let daysUntilTarget = targetDay - today.getDay();
+                if (daysUntilTarget <= 0) {
+                    daysUntilTarget += 7; // Next week
+                }
                 
                 const appointmentDate = new Date(today);
                 appointmentDate.setDate(today.getDate() + daysUntilTarget);
                 
                 // Parse time more accurately
-                const timeLower = time.toLowerCase().replace(/\s+/g, '');
-                let hours = 0;
-                let minutes = 0;
-                
-                // Handle various time formats
-                if (timeLower.includes('pm') || timeLower.includes('am')) {
-                    const match = timeLower.match(/(\d{1,2}):?(\d{0,2})(am|pm)/);
-                    if (match) {
-                        hours = parseInt(match[1]);
-                        minutes = parseInt(match[2] || 0);
-                        const ampm = match[3];
-                        
-                        if (ampm === 'pm' && hours !== 12) hours += 12;
-                        if (ampm === 'am' && hours === 12) hours = 0;
-                    }
-                } else {
-                    // 24-hour format or plain number
-                    const match = timeLower.match(/(\d{1,2}):?(\d{0,2})/);
-                    if (match) {
-                        hours = parseInt(match[1]);
-                        minutes = parseInt(match[2] || 0);
-                    }
+                const parsedTime = this.parseTimeString(time);
+                if (parsedTime) {
+                    appointmentDate.setHours(parsedTime.hours, parsedTime.minutes, 0, 0);
+                    logger.debug('Successfully parsed day name and time', { 
+                        originalDate: date,
+                        originalTime: time,
+                        parsedDate: appointmentDate.toISOString()
+                    });
+                    return appointmentDate;
                 }
-                
-                appointmentDate.setHours(hours, minutes, 0, 0);
-                return appointmentDate;
             }
             
             // Handle ISO dates or other formats
-            return new Date(date + 'T' + time);
+            const isoDate = new Date(date + 'T' + time);
+            if (!isNaN(isoDate.getTime())) {
+                return isoDate;
+            }
+
+            // Try parsing as MM-DD-YYYY or similar
+            const dateFormats = [
+                new Date(date + ' ' + time),
+                new Date(date)
+            ];
+
+            for (const testDate of dateFormats) {
+                if (!isNaN(testDate.getTime())) {
+                    const parsedTime = this.parseTimeString(time);
+                    if (parsedTime) {
+                        testDate.setHours(parsedTime.hours, parsedTime.minutes, 0, 0);
+                        return testDate;
+                    }
+                }
+            }
+
+            logger.warn('Could not parse date/time', { date, time });
+            return null;
+
         } catch (error) {
-            logger.warn('Error parsing appointment date/time', { date, time, error: error.message });
-            return new Date(); // Fallback to current time
+            logger.error('Error parsing appointment date/time', { date, time, error: error.message });
+            return null;
         }
+    }
+
+    /**
+     * Parse time string into hours and minutes
+     */
+    parseTimeString(time) {
+        try {
+            const timeLower = time.toLowerCase().replace(/\s+/g, '');
+            
+            // Handle various time formats
+            const timePatterns = [
+                /(\d{1,2}):(\d{2})(am|pm)/, // 2:30pm
+                /(\d{1,2})(am|pm)/, // 2pm
+                /(\d{1,2}):(\d{2})/, // 14:30 or 2:30
+                /(\d{1,2})/ // 14 or 2
+            ];
+
+            for (const pattern of timePatterns) {
+                const match = timeLower.match(pattern);
+                if (match) {
+                    let hours = parseInt(match[1]);
+                    let minutes = parseInt(match[2] || 0);
+                    const ampm = match[3];
+                    
+                    if (ampm === 'pm' && hours !== 12) hours += 12;
+                    if (ampm === 'am' && hours === 12) hours = 0;
+                    
+                    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+                        return { hours, minutes };
+                    }
+                }
+            }
+
+            logger.warn('Could not parse time string', { time });
+            return null;
+
+        } catch (error) {
+            logger.error('Error parsing time string', { time, error: error.message });
+            return null;
+        }
+    }
+
+    /**
+     * Format date as string for consistent comparison
+     */
+    formatDateString(date) {
+        if (date instanceof Date) {
+            return date.toISOString().split('T')[0]; // YYYY-MM-DD
+        }
+        return date;
     }
 
     /**
@@ -236,23 +327,6 @@ class CalendarService {
      */
     async createEvent(appointmentData) {
         try {
-            // Check for conflicts before creating
-            const availabilityCheck = await this.checkDetailedAvailability(
-                appointmentData.date, 
-                appointmentData.time, 
-                appointmentData.duration || 1
-            );
-            
-            if (!availabilityCheck.available) {
-                logger.warn('Cannot create appointment - time conflict', {
-                    date: appointmentData.date,
-                    time: appointmentData.time,
-                    conflicts: availabilityCheck.conflicts
-                });
-                
-                throw new Error(`Time slot not available: ${availabilityCheck.reason}`);
-            }
-            
             logger.info('Creating calendar event', {
                 customer: appointmentData.customer_name,
                 date: appointmentData.date,
@@ -286,7 +360,8 @@ class CalendarService {
                 eventId, 
                 customer: event.customer_name,
                 service: event.service_type,
-                stored_in_map: this.appointments.has(eventId)
+                stored_in_map: this.appointments.has(eventId),
+                total_appointments: this.appointments.size
             });
 
             // TODO: Create in Google Calendar
@@ -375,7 +450,15 @@ class CalendarService {
      */
     async getDayAvailability(date) {
         try {
-            const appointmentDate = new Date(date);
+            const appointmentDate = this.parseAppointmentDateTime(date, '12:00');
+            if (!appointmentDate) {
+                return {
+                    date,
+                    closed: true,
+                    available_slots: []
+                };
+            }
+
             const dayOfWeek = this.getDayOfWeek(appointmentDate);
             const businessDay = this.businessHours[dayOfWeek];
 
@@ -468,34 +551,55 @@ class CalendarService {
      * Check if appointment time conflicts with existing appointments
      */
     hasTimeConflict(date, time, duration) {
-        const appointmentStart = new Date(date + 'T' + time);
-        const appointmentEnd = new Date(appointmentStart.getTime() + (duration * 60 * 60 * 1000));
+        try {
+            const appointmentStart = this.parseAppointmentDateTime(date, time);
+            if (!appointmentStart) return false;
 
-        for (const [, appointment] of this.appointments) {
-            if (appointment.status === 'cancelled') continue;
-            if (appointment.date !== date) continue;
+            const appointmentEnd = new Date(appointmentStart.getTime() + (duration * 60 * 60 * 1000));
 
-            const existingStart = new Date(appointment.date + 'T' + appointment.time);
-            const existingEnd = new Date(existingStart.getTime() + (appointment.duration * 60 * 60 * 1000));
+            for (const [, appointment] of this.appointments) {
+                if (appointment.status === 'cancelled') continue;
+                
+                try {
+                    const existingStart = this.parseAppointmentDateTime(appointment.date, appointment.time);
+                    if (!existingStart) continue;
 
-            // Check for overlap
-            if (appointmentStart < existingEnd && appointmentEnd > existingStart) {
-                return true;
+                    const existingEnd = new Date(existingStart.getTime() + ((appointment.duration || 1) * 60 * 60 * 1000));
+
+                    // Check for overlap
+                    if (appointmentStart < existingEnd && appointmentEnd > existingStart) {
+                        return true;
+                    }
+                } catch (error) {
+                    logger.warn('Error parsing existing appointment for conflict check', { 
+                        appointmentId: appointment.id,
+                        error: error.message 
+                    });
+                    continue;
+                }
             }
-        }
 
-        return false;
+            return false;
+        } catch (error) {
+            logger.error('Error checking time conflict:', error);
+            return false; // Default to no conflict if error
+        }
     }
 
     /**
      * Check if time is within business hours
      */
     isWithinBusinessHours(time, businessDay) {
-        const appointmentTime = this.timeToMinutes(time);
-        const startTime = this.timeToMinutes(businessDay.start);
-        const endTime = this.timeToMinutes(businessDay.end);
+        try {
+            const appointmentTime = this.timeToMinutes(time);
+            const startTime = this.timeToMinutes(businessDay.start);
+            const endTime = this.timeToMinutes(businessDay.end);
 
-        return appointmentTime >= startTime && appointmentTime < endTime;
+            return appointmentTime >= startTime && appointmentTime < endTime;
+        } catch (error) {
+            logger.error('Error checking business hours:', error);
+            return false;
+        }
     }
 
     /**
@@ -527,117 +631,76 @@ class CalendarService {
      * Get all appointments
      */
     async getAllAppointments() {
-        const appointments = Array.from(this.appointments.values())
-            .filter(apt => apt.status !== 'cancelled') // Filter out cancelled appointments
-            .sort((a, b) => {
-                // Handle different date formats
-                const dateA = this.parseAppointmentDate(a.date, a.time);
-                const dateB = this.parseAppointmentDate(b.date, b.time);
-                return dateA.getTime() - dateB.getTime();
+        try {
+            logger.info('Getting all appointments from calendar service', { 
+                total_stored: this.appointments.size 
+            });
+
+            const appointments = Array.from(this.appointments.values())
+                .filter(apt => apt.status !== 'cancelled') // Filter out cancelled appointments
+                .sort((a, b) => {
+                    // Handle different date formats
+                    const dateA = this.parseAppointmentDateTime(a.date, a.time);
+                    const dateB = this.parseAppointmentDateTime(b.date, b.time);
+                    
+                    if (!dateA || !dateB) return 0;
+                    return dateA.getTime() - dateB.getTime();
+                });
+                
+            logger.info('Retrieved all appointments', { 
+                total_count: appointments.length,
+                appointment_details: appointments.map(apt => ({
+                    id: apt.id,
+                    customer: apt.customer_name,
+                    service: apt.service_type,
+                    date: apt.date,
+                    time: apt.time,
+                    status: apt.status
+                }))
             });
             
-        logger.debug('Retrieved all appointments', { count: appointments.length });
-        
-        // Format appointments for frontend compatibility
-        const formattedAppointments = appointments.map(apt => ({
-            ...apt,
-            formatted_date: this.formatDateForFrontend(apt.date),
-            formatted_time: this.formatTimeForFrontend(apt.time),
-            display_name: `${apt.customer_name} - ${apt.service_type}`,
-            status_color: this.getStatusColor(apt.status)
-        }));
-        
-        return appointments;
-    }
-
-    /**
-     * Parse appointment date/time handling various formats
-     */
-    parseAppointmentDate(date, time) {
-        try {
-            // Handle day names like "Friday"
-            if (['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].includes(date.toLowerCase())) {
-                const today = new Date();
-                const dayMap = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
-                const targetDay = dayMap[date.toLowerCase()];
-                const daysUntilTarget = (targetDay - today.getDay() + 7) % 7 || 7; // Next occurrence
-                
-                const appointmentDate = new Date(today);
-                appointmentDate.setDate(today.getDate() + daysUntilTarget);
-                
-                // Parse time
-                const timeParts = time.toLowerCase().replace(/\s+/g, '').match(/(\d{1,2}):?(\d{0,2})(am|pm)?/);
-                if (timeParts) {
-                    let hours = parseInt(timeParts[1]);
-                    const minutes = parseInt(timeParts[2] || 0);
-                    const ampm = timeParts[3];
-                    
-                    if (ampm === 'pm' && hours !== 12) hours += 12;
-                    if (ampm === 'am' && hours === 12) hours = 0;
-                    
-                    appointmentDate.setHours(hours, minutes, 0, 0);
-                }
-                
-                return appointmentDate;
-            }
-            
-            // Handle ISO dates or other formats
-            return new Date(date + 'T' + time);
+            return appointments;
         } catch (error) {
-            logger.warn('Error parsing appointment date/time', { date, time, error: error.message });
-            return new Date(); // Fallback to current time
+            logger.error('Error getting all appointments:', error);
+            return [];
         }
     }
 
-    /**
-     * Format date for frontend display
-     */
-    formatDateForFrontend(date) {
-        const parsedDate = this.parseAppointmentDate(date, '12:00');
-        return parsedDate.toISOString().split('T')[0]; // YYYY-MM-DD format
-    }
-
-    /**
-     * Format time for frontend display
-     */
-    formatTimeForFrontend(time) {
-        // Normalize time format
-        const normalizedTime = time.toLowerCase().replace(/\s+/g, '');
-        const timeParts = normalizedTime.match(/(\d{1,2}):?(\d{0,2})(am|pm)?/);
-        
-        if (timeParts) {
-            let hours = parseInt(timeParts[1]);
-            const minutes = parseInt(timeParts[2] || 0);
-            const ampm = timeParts[3];
-            
-            if (ampm === 'pm' && hours !== 12) hours += 12;
-            if (ampm === 'am' && hours === 12) hours = 0;
-            
-            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-        }
-        
-        return time; // Return original if parsing fails
-    }
-
-    /**
-     * Get status color for frontend
-     */
-    getStatusColor(status) {
-        const colorMap = {
-            confirmed: '#16a34a',   // Green
-            pending: '#f59e0b',     // Amber  
-            completed: '#06b6d4',   // Cyan
-            cancelled: '#ef4444'    // Red
-        };
-        return colorMap[status] || '#6b7280'; // Default gray
-    }
     /**
      * Get appointments for a specific date
      */
     async getAppointmentsForDate(date) {
-        return Array.from(this.appointments.values())
-            .filter(appointment => appointment.date === date && appointment.status !== 'cancelled')
-            .sort((a, b) => a.time.localeCompare(b.time));
+        try {
+            const allAppointments = await this.getAllAppointments();
+            const dateAppointments = allAppointments.filter(appointment => {
+                // Handle both day names and dates
+                if (appointment.date.toLowerCase() === date.toLowerCase()) {
+                    return true;
+                }
+                
+                // Parse both dates and compare
+                const appointmentDate = this.parseAppointmentDateTime(appointment.date, appointment.time);
+                const targetDate = this.parseAppointmentDateTime(date, '00:00');
+                
+                if (appointmentDate && targetDate) {
+                    return appointmentDate.toDateString() === targetDate.toDateString();
+                }
+                
+                return false;
+            });
+
+            return dateAppointments.sort((a, b) => {
+                const timeA = this.parseTimeString(a.time);
+                const timeB = this.parseTimeString(b.time);
+                
+                if (!timeA || !timeB) return 0;
+                
+                return (timeA.hours * 60 + timeA.minutes) - (timeB.hours * 60 + timeB.minutes);
+            });
+        } catch (error) {
+            logger.error('Error getting appointments for date:', error);
+            return [];
+        }
     }
 
     /**
